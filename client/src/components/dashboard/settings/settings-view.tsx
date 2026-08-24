@@ -14,15 +14,19 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GeneralTab } from "./general-tab";
+import { NotificationsTab } from "./notifications-tab";
 import { AIProvidersTab } from "./ai-providers-tab";
 import { ConnectorsTab } from "./connectors-tab";
 import { ApiManagementTab } from "./api-management-tab";
 import { SecurityTab } from "./security-tab";
 import { ProfileModal } from "./profile-modal";
 import { AccountPopover } from "./account-popover";
+import { useUserProfile } from "@/context/user-profile-context";
+import { Bell } from "lucide-react";
 
 export type SettingsTabId =
   | "general"
+  | "notifications"
   | "ai-providers"
   | "connectors"
   | "api-management"
@@ -46,13 +50,15 @@ export function SettingsView({
 }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [currentName, setCurrentName] = useState(userLabel || "Rajesh Kayal");
+  const { profile } = useUserProfile();
+  const currentName = profile?.name || userLabel || "";
 
   const NAV_GROUPS = [
     {
       title: "GENERAL",
       items: [
         { id: "general" as SettingsTabId, label: "General", icon: Sliders },
+        { id: "notifications" as SettingsTabId, label: "Notifications", icon: Bell },
         { id: "ai-providers" as SettingsTabId, label: "AI Providers", icon: Bot },
         { id: "connectors" as SettingsTabId, label: "Connectors", icon: Globe },
         { id: "api-management" as SettingsTabId, label: "API Management", icon: Key },
@@ -184,13 +190,13 @@ export function SettingsView({
         </aside>
 
         {/* MAIN SETTINGS CONTENT WORKSPACE */}
-        <main className="flex-1 min-w-0 overflow-y-auto bg-[#08090A] p-6 sm:p-8 space-y-6 max-w-[1150px] mx-auto">
+        <main className="flex-1 min-w-0 overflow-y-auto bg-[#08090A] p-4 sm:p-6 space-y-4 w-full max-w-5xl mx-auto">
           {/* Main Settings Header */}
-          <div className="pb-4 border-b border-zinc-800/80">
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+          <div className="pb-3 border-b border-zinc-800/80">
+            <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
               Settings
             </h1>
-            <p className="text-xs text-zinc-400 mt-1">
+            <p className="text-xs text-zinc-400 mt-0.5">
               Manage your account, AI providers, connectors, and security.
             </p>
           </div>
@@ -198,6 +204,7 @@ export function SettingsView({
           {/* Active Settings Section */}
           <div className="pt-2">
             {activeTab === "general" && <GeneralTab />}
+            {activeTab === "notifications" && <NotificationsTab />}
             {activeTab === "ai-providers" && <AIProvidersTab />}
             {activeTab === "connectors" && (
               <ConnectorsTab
@@ -215,8 +222,6 @@ export function SettingsView({
       <ProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
-        userLabel={currentName}
-        onUpdateName={(name) => setCurrentName(name)}
       />
     </div>
   );

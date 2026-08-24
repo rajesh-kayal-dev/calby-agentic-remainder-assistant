@@ -8,8 +8,8 @@ if (!projectId) {
 }
 
 export const descopeClient = DescopeClient({
-  projectId: projectId ?? "",
-  managementKey: managementKey ?? "",
+  projectId: projectId || "mock_project_id",
+  managementKey: managementKey || "",
 });
 
 export const CALENDAR_CONNECTION_ID =

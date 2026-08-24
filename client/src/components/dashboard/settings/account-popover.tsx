@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import { User, Settings, LogOut, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUserProfile } from "@/context/user-profile-context";
 
 interface AccountPopoverProps {
-  userLabel: string;
+  userLabel?: string;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onLogout?: () => void;
@@ -13,12 +14,12 @@ interface AccountPopoverProps {
 }
 
 export function AccountPopover({
-  userLabel,
   onOpenProfile,
   onOpenSettings,
   onLogout,
   loggingOut = false,
 }: AccountPopoverProps) {
+  const { profile, isLoading } = useUserProfile();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -38,7 +39,8 @@ export function AccountPopover({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen]);
 
-  const initial = userLabel ? userLabel.charAt(0).toUpperCase() : "R";
+  const displayName = profile?.name || "";
+  const initial = displayName ? displayName.charAt(0).toUpperCase() : "U";
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -89,36 +91,53 @@ export function AccountPopover({
       )}
 
       {/* Account Profile Control Footer Button */}
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-2.5 py-2 text-left hover:bg-zinc-800/80 transition-all duration-150 shadow-sm group select-none",
-          isOpen && "bg-zinc-800/90 border-zinc-700/80"
-        )}
-        aria-label="Account Menu"
-        aria-expanded={isOpen}
-      >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-500/20 border border-teal-500/30 text-xs font-bold text-teal-300">
-          {initial}
+      {isLoading ? (
+        /* Sidebar Account Skeleton Loader */
+        <div
+          className="flex w-full items-center gap-2.5 rounded-xl border border-zinc-800/80 bg-zinc-900/40 px-2.5 py-2 animate-pulse"
+          role="status"
+          aria-label="Loading user account"
+        >
+          <div className="size-8 shrink-0 rounded-full bg-zinc-800/80" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="h-3.5 w-24 rounded bg-zinc-800/80" />
+            <div className="h-2.5 w-12 rounded bg-zinc-800/60" />
+          </div>
+          <ChevronUp className="size-4 text-zinc-600 shrink-0" />
         </div>
-
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-white leading-tight">
-            {userLabel || "Rajesh Kayal"}
-          </p>
-          <p className="text-[10px] font-medium text-zinc-500 truncate leading-none mt-0.5">
-            Account
-          </p>
-        </div>
-
-        <ChevronUp
+      ) : (
+        /* Real Authenticated Account Button */
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
           className={cn(
-            "size-4 text-zinc-500 group-hover:text-zinc-300 transition-transform duration-200 shrink-0",
-            isOpen && "rotate-180 text-lime-400"
+            "flex w-full items-center gap-2.5 rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-2.5 py-2 text-left hover:bg-zinc-800/80 transition-all duration-150 shadow-sm group select-none",
+            isOpen && "bg-zinc-800/90 border-zinc-700/80"
           )}
-        />
-      </button>
+          aria-label="Account Menu"
+          aria-expanded={isOpen}
+        >
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-500/20 border border-teal-500/30 text-xs font-bold text-teal-300">
+            {initial}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-white leading-tight">
+              {displayName || "Account"}
+            </p>
+            <p className="text-[10px] font-medium text-zinc-500 truncate leading-none mt-0.5">
+              Account
+            </p>
+          </div>
+
+          <ChevronUp
+            className={cn(
+              "size-4 text-zinc-500 group-hover:text-zinc-300 transition-transform duration-200 shrink-0",
+              isOpen && "rotate-180 text-lime-400"
+            )}
+          />
+        </button>
+      )}
     </div>
   );
 }

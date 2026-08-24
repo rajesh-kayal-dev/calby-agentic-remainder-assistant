@@ -4,17 +4,37 @@ import { requireSession } from "../middleware/requireSession.js";
 import {
   getThreadMessages,
   listUserThreads,
+  deleteThread,
   streamAgentReply,
 } from "../services/agent.service.js";
+import { updateConversation } from "../repositories/chat.repository.js";
 
 export const agentRoutes = Router();
 
 const chatSchema = z.object({
   message: z.string().trim().min(1).max(5000),
   threadId: z.string().uuid(),
+  llm: z
+    .object({
+      providerId: z.string(),
+      model: z.string().optional(),
+    })
+    .optional(),
+  selectedTool: z
+    .object({
+      id: z.string(),
+      category: z.string(),
+      name: z.string(),
+    })
+    .optional(),
 });
 
 const threadIdSchema = z.string().uuid();
+
+const updateThreadSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  isPinned: z.boolean().optional(),
+});
 
 agentRoutes.use(requireSession);
 
@@ -45,6 +65,52 @@ agentRoutes.get("/threads/:threadId", async (req, res) => {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to get thread messages";
+    res.status(500).json({ error: message });
+  }
+});
+
+agentRoutes.delete("/threads/:threadId", async (req, res) => {
+  const parsed = threadIdSchema.safeParse(req.params.threadId);
+
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid threadId" });
+    return;
+  }
+  try {
+    const success = await deleteThread(
+      req.authContext!.authUserId,
+      parsed.data,
+    );
+    res.json({ success });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to delete thread";
+    res.status(500).json({ error: message });
+  }
+});
+
+agentRoutes.patch("/threads/:threadId", async (req, res) => {
+  const parsedId = threadIdSchema.safeParse(req.params.threadId);
+  const parsedBody = updateThreadSchema.safeParse(req.body);
+
+  if (!parsedId.success || !parsedBody.success) {
+    res.status(400).json({ error: "Invalid payload" });
+    return;
+  }
+
+  try {
+    const updated = await updateConversation(
+      req.authContext!.authUserId,
+      parsedId.data,
+      {
+        title: parsedBody.data.title,
+        isPinned: parsedBody.data.isPinned,
+      },
+    );
+    res.json({ thread: updated });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to update thread";
     res.status(500).json({ error: message });
   }
 });
@@ -82,6 +148,7 @@ agentRoutes.post("/chat", async (req, res) => {
       authUserId: req.authContext!.authUserId,
       threadId: parsed.data.threadId,
       message: parsed.data.message,
+      llm: parsed.data.llm,
       onEvent: write,
       abortSignal: abortController.signal,
     });
@@ -97,5 +164,3 @@ agentRoutes.post("/chat", async (req, res) => {
     }
   }
 });
-
-

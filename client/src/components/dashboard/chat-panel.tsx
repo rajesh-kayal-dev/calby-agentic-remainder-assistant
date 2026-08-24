@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -28,9 +29,17 @@ import {
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
 import {
+  connectCalendar,
+  fetchCalendarConnection,
+  refreshCalendarConnection,
+} from "@/lib/connections";
+import {
   listThreads,
   loadThread,
   streamAgentChat,
+  deleteThreadApi,
+  updateThreadApi,
+  ThreadMessage,
   ThreadSummary,
 } from "@/lib/agent";
 import { ScrollArea } from "../ui/scroll-area";
@@ -45,11 +54,14 @@ import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
 import { AccountPopover } from "./settings/account-popover";
 import { SettingsView, SettingsTabId } from "./settings/settings-view";
 import { ProfileModal } from "./settings/profile-modal";
-import {
-  connectCalendar,
-  fetchCalendarConnection,
-  refreshCalendarConnection,
-} from "@/lib/connections";
+import { NotificationBellPopover } from "./settings/notification-bell-popover";
+import { LLMModelSwitcher } from "./llm-model-switcher";
+import { AssistantMessageItem } from "./assistant-message-item";
+import { UserMessageItem } from "./user-message-item";
+import { ChatSidebarItem } from "./chat-sidebar-item";
+import { AIComposer } from "./composer/ai-composer";
+import { useUserProfile } from "@/context/user-profile-context";
+import { useLLM } from "@/context/llm-context";
 import { ConnectionInfo } from "@/lib/types";
 
 const styles = {
@@ -218,6 +230,54 @@ const SUGGESTIONS = [
   "Create a meeting",
 ];
 
+function formatRelativeDate(isoString: string): string {
+  if (!isoString) return "";
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin} min ago`;
+
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+      if (diffHour === 1) return "1 hour ago";
+      return `${diffHour} hours ago`;
+    }
+
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      date.getDate() === yesterday.getDate() &&
+      date.getMonth() === yesterday.getMonth() &&
+      date.getFullYear() === yesterday.getFullYear();
+
+    if (isYesterday) return "Yesterday";
+
+    const day = date.getDate();
+    const month = date.toLocaleDateString("en-US", { month: "short" });
+    const year = date.getFullYear();
+
+    if (year === now.getFullYear()) {
+      return `${day} ${month}`;
+    }
+
+    return `${day} ${month} ${year}`;
+  } catch {
+    return isoString;
+  }
+}
+
 function sanitizeProgressMessage(msg?: string): string {
   if (!msg) return "Checking your calendar...";
   const lower = msg.toLowerCase();
@@ -245,6 +305,8 @@ function WelcomeMessage(): Message {
     content: WELCOME_PROMPT,
   };
 }
+
+function renderCalendarStatusPill(conn: ConnectionInfo | null) {}
 
 function GoogleCalendarNavItem({
   sessionToken,
@@ -388,7 +450,7 @@ function GoogleCalendarOverlay({
   }, [sessionToken, isOpen]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
       }
@@ -510,12 +572,29 @@ function ChatPanel({
   const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings">(initialView);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("ai-providers");
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [currentUserLabel, setCurrentUserLabel] = useState(userLabel || "Rajesh Kayal");
+  const { profile, isLoading: isProfileLoading } = useUserProfile();
+  const { defaultConnection, providers, activeLLM } = useLLM();
   const [calendarWidth, setCalendarWidth] = useState<number>(380);
   const [calendarCollapsed, setCalendarCollapsed] = useState<boolean>(true);
   const [calendarFullscreen, setCalendarFullscreen] = useState<boolean>(false);
   const [isDraggingCalendar, setIsDraggingCalendar] = useState<boolean>(false);
   const [googleCalendarOverlayOpen, setGoogleCalendarOverlayOpen] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [calendarConnection, setCalendarConnection] = useState<ConnectionInfo | null>(null);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    fetchCalendarConnection(sessionToken)
+      .then(setCalendarConnection)
+      .catch(() => setCalendarConnection(null));
+  }, [sessionToken]);
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   const todayFormatted = useMemo(() => {
     const d = new Date();
@@ -638,6 +717,9 @@ function ChatPanel({
         {
           message: trimmed,
           threadId,
+          llm: activeLLM
+            ? { providerId: activeLLM.providerId, model: activeLLM.model }
+            : undefined,
         },
         (event) => {
           if (event.type === "progress" && event.message) {
@@ -674,20 +756,133 @@ function ChatPanel({
       );
 
       refreshThreads();
-    } catch {
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "system",
-          content: "Could not reach the agent API",
-        },
-      ]);
+    } catch (err: any) {
+      const errMsg = err?.message || "Could not reach the agent API";
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                role: "system",
+                content: errMsg,
+              }
+            : message,
+        ),
+      );
     } finally {
       setRunning(false);
       setProgress(null);
     }
   }
+
+  const handleRegenerate = useCallback(() => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUserMsg && lastUserMsg.content) {
+      sendMessage(lastUserMsg.content);
+    }
+  }, [messages, sendMessage]);
+
+  const handleResubmitUserMessage = useCallback(
+    async (userMsgId: string, newContent: string) => {
+      const trimmed = newContent.trim();
+      if (!trimmed || running || loadingThread) return;
+
+      const userIndex = messages.findIndex((m) => m.id === userMsgId);
+      if (userIndex === -1) return;
+
+      const nextMsg = messages[userIndex + 1];
+      let targetAssistantId: string;
+
+      if (nextMsg && nextMsg.role === "assistant") {
+        targetAssistantId = nextMsg.id;
+      } else {
+        targetAssistantId = crypto.randomUUID();
+      }
+
+      setMessages((current) => {
+        const updated = [...current];
+        updated[userIndex] = { ...updated[userIndex], content: trimmed };
+
+        if (nextMsg && nextMsg.role === "assistant") {
+          updated[userIndex + 1] = { ...updated[userIndex + 1], content: "" };
+        } else {
+          updated.splice(userIndex + 1, 0, {
+            id: targetAssistantId,
+            role: "assistant",
+            content: "",
+          });
+        }
+        return updated;
+      });
+
+      setRunning(true);
+      setProgress("Processing...");
+
+      try {
+        await streamAgentChat(
+          sessionToken,
+          {
+            message: trimmed,
+            threadId,
+            llm: activeLLM
+              ? { providerId: activeLLM.providerId, model: activeLLM.model }
+              : undefined,
+          },
+          (event) => {
+            if (event.type === "progress" && event.message) {
+              setProgress(event.message);
+            }
+            if (event.type === "token" && event.token) {
+              setProgress(null);
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === targetAssistantId
+                    ? {
+                        ...message,
+                        content: message.content + event.token,
+                      }
+                    : message,
+                ),
+              );
+            }
+
+            if (event.type === "error") {
+              setProgress(null);
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === targetAssistantId
+                    ? {
+                        ...message,
+                        content: event.message ?? "Agent failed",
+                      }
+                    : message,
+                ),
+              );
+            }
+          },
+        );
+
+        refreshThreads();
+      } catch (err: any) {
+        const errMsg = err?.message || "Could not reach the agent API";
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === targetAssistantId
+              ? {
+                  ...message,
+                  role: "system",
+                  content: errMsg,
+                }
+              : message,
+          ),
+        );
+      } finally {
+        setRunning(false);
+        setProgress(null);
+      }
+    },
+    [messages, running, loadingThread, sessionToken, threadId, activeLLM, refreshThreads],
+  );
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -705,14 +900,15 @@ function ChatPanel({
     t.title.toLowerCase().includes(searchQuery.toLowerCase().trim()),
   );
 
-  const userInitial = currentUserLabel ? currentUserLabel.charAt(0).toUpperCase() : "R";
+  const currentDisplayUser = profile?.name || userLabel || "";
+  const userInitial = currentDisplayUser ? currentDisplayUser.charAt(0).toUpperCase() : "U";
 
   if (activeView === "settings") {
     return (
       <div className={styles.shell}>
         <SettingsView
           sessionToken={sessionToken}
-          userLabel={currentUserLabel}
+          userLabel={currentDisplayUser}
           initialTab={settingsTab}
           onBackToAssistant={() => setActiveView("assistant")}
           onOpenCalendarWorkspace={() => setGoogleCalendarOverlayOpen(true)}
@@ -720,8 +916,6 @@ function ChatPanel({
         <ProfileModal
           isOpen={profileModalOpen}
           onClose={() => setProfileModalOpen(false)}
-          userLabel={currentUserLabel}
-          onUpdateName={(name) => setCurrentUserLabel(name)}
         />
       </div>
     );
@@ -774,16 +968,32 @@ function ChatPanel({
             </button>
           </CalbyTooltip>
 
-          <div className={styles.modelPill}>
-            <span className={styles.modelDot} />
-            <span>OpenAI · GPT-4o-mini</span>
-          </div>
+          {/* LLM Provider + Model Switcher Popover (Matches Reference Screenshots) */}
+          <LLMModelSwitcher
+            onOpenSettings={(tab) => {
+              setSettingsTab(tab);
+              setActiveView("settings");
+            }}
+          />
+
+          <NotificationBellPopover
+            onOpenFullPage={() => {
+              setSettingsTab("notifications");
+              setActiveView("settings");
+            }}
+          />
 
           <div className={styles.userChip}>
-            <div className={styles.userAvatar}>{userInitial}</div>
-            <span className="max-w-[120px] truncate font-medium hidden sm:inline">
-              {currentUserLabel}
-            </span>
+            {isProfileLoading && !profile ? (
+              <div className="h-5 w-20 rounded bg-zinc-800 animate-pulse" />
+            ) : (
+              <>
+                <div className={styles.userAvatar}>{userInitial}</div>
+                <span className="max-w-[120px] truncate font-medium hidden sm:inline">
+                  {currentDisplayUser}
+                </span>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -918,58 +1128,151 @@ function ChatPanel({
 
           {/* Chats Section */}
           <div className={styles.chatsSection}>
-            <div className={styles.chatsHeader}>
-              <span>Chats</span>
-              <span className="text-[10px] text-zinc-500">
-                {threads.length} {threads.length === 1 ? "chat" : "chats"}
-              </span>
-            </div>
-
             <ScrollArea className={styles.chatsScroll}>
               {threads.length === 0 ? (
-                <p className={styles.chatsEmpty}>
-                  No chats yet. Start one and it will show up here.
-                </p>
+                <div className="py-6 px-3 text-center space-y-1">
+                  <p className="text-xs font-semibold text-zinc-300">No conversations yet</p>
+                  <p className="text-[11px] text-zinc-500">Ask Calby about your calendar to get started.</p>
+                </div>
               ) : filteredThreads.length === 0 ? (
                 <p className={styles.chatsEmpty}>No chats matching search.</p>
               ) : (
-                <div className={styles.threadList}>
-                  {filteredThreads.map((thread) => {
-                    const active = thread.id === threadId && activeView === "assistant";
-                    return (
-                      <button
-                        key={thread.id}
-                        type="button"
-                        disabled={running || loadingThread}
-                        onClick={() => {
-                          resumeThread(thread.id);
-                          setActiveView("assistant");
-                        }}
-                        className={cn(
-                          styles.threadBtn,
-                          active ? styles.threadBtnActive : styles.threadBtnIdle,
-                        )}
-                      >
-                        {active && <span className={styles.threadActiveBar} />}
-                        <span
-                          className={cn(
-                            styles.threadTitle,
-                            active && "pl-2 font-semibold text-white",
-                          )}
-                        >
-                          {thread.title}
-                        </span>
-                        <span
-                          className={cn(
-                            styles.threadTime,
-                            active && "pl-2 text-zinc-400",
-                          )}
-                        >
-                          {thread.updatedAt}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div className="space-y-4">
+                  {/* PINNED CHATS GROUP */}
+                  {filteredThreads.filter((t) => t.isPinned).length > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between px-1 text-[10px] font-bold tracking-wider text-lime-400 uppercase">
+                        <span>Pinned</span>
+                        <span>{filteredThreads.filter((t) => t.isPinned).length}</span>
+                      </div>
+                      <div className={styles.threadList}>
+                        {filteredThreads
+                          .filter((t) => t.isPinned)
+                          .map((thread) => (
+                            <ChatSidebarItem
+                              key={thread.id}
+                              thread={thread}
+                              isActive={thread.id === threadId && activeView === "assistant"}
+                              disabled={running || loadingThread}
+                              onSelect={() => {
+                                resumeThread(thread.id);
+                                setActiveView("assistant");
+                              }}
+                              onPinToggle={async (tId, currentPinned) => {
+                                const newPinned = !currentPinned;
+                                setThreads((curr) =>
+                                  curr.map((t) => (t.id === tId ? { ...t, isPinned: newPinned } : t)),
+                                );
+                                try {
+                                  await updateThreadApi(sessionToken, tId, { isPinned: newPinned });
+                                  setToastMessage(newPinned ? "Conversation pinned" : "Conversation unpinned");
+                                } catch {
+                                  setThreads((curr) =>
+                                    curr.map((t) => (t.id === tId ? { ...t, isPinned: currentPinned } : t)),
+                                  );
+                                  setToastMessage("Couldn't update pin state.");
+                                }
+                              }}
+                              onRename={async (tId, newTitle) => {
+                                const oldTitle = threads.find((t) => t.id === tId)?.title || "";
+                                setThreads((curr) =>
+                                  curr.map((t) => (t.id === tId ? { ...t, title: newTitle } : t)),
+                                );
+                                try {
+                                  await updateThreadApi(sessionToken, tId, { title: newTitle });
+                                  setToastMessage("Conversation renamed");
+                                } catch {
+                                  setThreads((curr) =>
+                                    curr.map((t) => (t.id === tId ? { ...t, title: oldTitle } : t)),
+                                  );
+                                  setToastMessage("Couldn't rename conversation.");
+                                }
+                              }}
+                              onDelete={async (tId) => {
+                                try {
+                                  await deleteThreadApi(sessionToken, tId);
+                                  setThreads((curr) => curr.filter((t) => t.id !== tId));
+                                  if (threadId === tId) {
+                                    startNewChat();
+                                  }
+                                  setToastMessage("Conversation deleted");
+                                } catch {
+                                  setToastMessage("Couldn't delete conversation.");
+                                }
+                              }}
+                              formatDate={formatRelativeDate}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* REGULAR CHATS GROUP */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between px-1 text-[10px] font-bold tracking-wider text-zinc-500 uppercase">
+                      <span>Chats</span>
+                      <span>{filteredThreads.filter((t) => !t.isPinned).length}</span>
+                    </div>
+                    <div className={styles.threadList}>
+                      {filteredThreads
+                        .filter((t) => !t.isPinned)
+                        .map((thread) => (
+                          <ChatSidebarItem
+                            key={thread.id}
+                            thread={thread}
+                            isActive={thread.id === threadId && activeView === "assistant"}
+                            disabled={running || loadingThread}
+                            onSelect={() => {
+                              resumeThread(thread.id);
+                              setActiveView("assistant");
+                            }}
+                            onPinToggle={async (tId, currentPinned) => {
+                              const newPinned = !currentPinned;
+                              setThreads((curr) =>
+                                curr.map((t) => (t.id === tId ? { ...t, isPinned: newPinned } : t)),
+                              );
+                              try {
+                                await updateThreadApi(sessionToken, tId, { isPinned: newPinned });
+                                setToastMessage(newPinned ? "Conversation pinned" : "Conversation unpinned");
+                              } catch {
+                                setThreads((curr) =>
+                                  curr.map((t) => (t.id === tId ? { ...t, isPinned: currentPinned } : t)),
+                                );
+                                setToastMessage("Couldn't update pin state.");
+                              }
+                            }}
+                            onRename={async (tId, newTitle) => {
+                              const oldTitle = threads.find((t) => t.id === tId)?.title || "";
+                              setThreads((curr) =>
+                                curr.map((t) => (t.id === tId ? { ...t, title: newTitle } : t)),
+                              );
+                              try {
+                                await updateThreadApi(sessionToken, tId, { title: newTitle });
+                                setToastMessage("Conversation renamed");
+                              } catch {
+                                setThreads((curr) =>
+                                  curr.map((t) => (t.id === tId ? { ...t, title: oldTitle } : t)),
+                                );
+                                setToastMessage("Couldn't rename conversation.");
+                              }
+                            }}
+                            onDelete={async (tId) => {
+                              try {
+                                await deleteThreadApi(sessionToken, tId);
+                                setThreads((curr) => curr.filter((t) => t.id !== tId));
+                                if (threadId === tId) {
+                                  startNewChat();
+                                }
+                                setToastMessage("Conversation deleted");
+                              } catch {
+                                setToastMessage("Couldn't delete conversation.");
+                              }
+                            }}
+                            formatDate={formatRelativeDate}
+                          />
+                        ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </ScrollArea>
@@ -980,7 +1283,7 @@ function ChatPanel({
           {/* User Account Profile Footer */}
           <div className={styles.sidebarFooter}>
             <AccountPopover
-              userLabel={currentUserLabel}
+              userLabel={currentDisplayUser}
               onOpenProfile={() => setProfileModalOpen(true)}
               onOpenSettings={() => {
                 setSettingsTab("ai-providers");
@@ -997,7 +1300,7 @@ function ChatPanel({
           <div className="flex min-w-0 flex-1 overflow-hidden">
             <CalendarWorkspace
               sessionToken={sessionToken}
-              userLabel={currentUserLabel}
+              userLabel={currentDisplayUser}
               onAskCalby={(calbyPrompt) => {
                 setActiveView("assistant");
                 if (calbyPrompt) {
@@ -1133,60 +1436,51 @@ function ChatPanel({
                             <span>Loading conversation...</span>
                           </div>
                         ) : (
-                          messages.map((message) => {
+                          messages.map((message, index) => {
                             if (message.id === "welcome" && messages.length > 1) {
                               return null;
                             }
 
                             if (message.role === "user") {
                               return (
-                                <div
+                                <UserMessageItem
                                   key={message.id}
-                                  className={cn(styles.messageRow, styles.messageRowUser)}
-                                >
-                                  <div className={styles.bubbleUser}>
-                                    <p className="whitespace-pre-wrap">
-                                      {message.content}
-                                    </p>
-                                  </div>
-                                </div>
+                                  messageId={message.id}
+                                  content={message.content}
+                                  onSave={(newContent) => {
+                                    setMessages((current) =>
+                                      current.map((m) =>
+                                        m.id === message.id ? { ...m, content: newContent } : m,
+                                      ),
+                                    );
+                                  }}
+                                  onSubmit={(newContent) => {
+                                    handleResubmitUserMessage(message.id, newContent);
+                                  }}
+                                />
                               );
                             }
 
+                            const isLastAssistant =
+                              message.role === "assistant" &&
+                              index === messages.findLastIndex((m) => m.role === "assistant");
+
                             return (
-                              <div
+                              <AssistantMessageItem
                                 key={message.id}
-                                className={cn(
-                                  styles.messageRow,
-                                  styles.messageRowAssistant,
-                                )}
-                              >
-                                <div className={styles.assistantAvatar}>
-                                  <Sparkles className="size-3.5 text-lime-400" />
-                                </div>
-                                <div
-                                  className={cn(
-                                    styles.bubbleAssistant,
-                                    message.role === "system" && styles.bubbleSystem,
-                                  )}
-                                >
-                                  {!message.content && running ? (
-                                    <div className="flex items-center gap-2 text-xs text-zinc-400">
-                                      <LoaderCircle className="size-3.5 animate-spin text-lime-400" />
-                                      <span>Thinking...</span>
-                                    </div>
-                                  ) : (
-                                    <MarkdownMessage
-                                      content={message.content}
-                                      tone={
-                                        message.role === "system"
-                                          ? "system"
-                                          : "assistant"
-                                      }
-                                    />
-                                  )}
-                                </div>
-                              </div>
+                                messageId={message.id}
+                                content={message.content}
+                                isStreaming={!message.content && running}
+                                isSystemError={message.role === "system"}
+                                onRegenerate={isLastAssistant ? handleRegenerate : undefined}
+                                onDeleteMessage={(id) => {
+                                  setMessages((current) => current.filter((m) => m.id !== id));
+                                }}
+                                onConfirmAction={(toolId) => {
+                                  sendMessage(`Confirm action for tool ${toolId}`);
+                                }}
+                                onOpenConnectCalendar={() => setGoogleCalendarOverlayOpen(true)}
+                              />
                             );
                           })
                         )}
@@ -1208,46 +1502,21 @@ function ChatPanel({
                 </ScrollArea>
 
                 {/* Premium AI Command Bar Input */}
-                <div className={styles.composerWrap}>
-                  <form onSubmit={onSubmit} className={styles.composerForm}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (SUGGESTIONS[0]) setPrompt(SUGGESTIONS[0]);
-                      }}
-                      className={styles.quickActionBtn}
-                      title="Quick prompt"
-                    >
-                      <Plus className="size-4 text-zinc-400" />
-                    </button>
-
-                    <Textarea
-                      value={prompt}
-                      onChange={(event) => setPrompt(event.target.value)}
-                      rows={1}
-                      onKeyDown={onKeyDown}
-                      disabled={running}
-                      placeholder="Ask Calby about your calendar..."
-                      className={styles.composerInput}
-                    />
-
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!prompt.trim() || running}
-                      className={styles.sendBtn}
-                      aria-label="Send Text Message"
-                    >
-                      {running ? (
-                        <LoaderCircle className="size-4 animate-spin text-zinc-950" />
-                      ) : (
-                        <ArrowUp className="size-4 text-zinc-950 stroke-[2.5]" />
-                      )}
-                    </Button>
-                  </form>
-                  <p className={styles.composerHint}>
-                    Ask about events, free slots, or schedule a Google Calendar meeting.
-                  </p>
+                <div className="relative z-30 p-4 border-t border-zinc-800/80 bg-[#0C0C0E]/95 overflow-visible">
+                  <AIComposer
+                    prompt={prompt}
+                    setPrompt={setPrompt}
+                    onSubmit={onSubmit}
+                    running={running}
+                    calendarConnection={calendarConnection}
+                    onConnectService={(serviceId) => {
+                      if (serviceId === "google_calendar" || serviceId === "gmail") {
+                        setGoogleCalendarOverlayOpen(true);
+                      } else {
+                        setActiveView("settings");
+                      }
+                    }}
+                  />
                 </div>
               </div>
             </section>
@@ -1312,9 +1581,15 @@ function ChatPanel({
       <ProfileModal
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
-        userLabel={currentUserLabel}
-        onUpdateName={(name) => setCurrentUserLabel(name)}
       />
+
+      {/* Floating Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-[#14151B] px-4 py-2.5 text-xs text-white shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200">
+          <Sparkles className="size-4 text-lime-400 shrink-0" />
+          <span className="font-medium">{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

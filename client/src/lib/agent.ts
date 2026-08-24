@@ -11,6 +11,7 @@ export type AgentStreamEvent = {
 export type ThreadSummary = {
   id: string;
   title: string;
+  isPinned?: boolean;
   updatedAt: string;
 };
 
@@ -35,7 +36,16 @@ export async function loadThread(token: string, threadId: string) {
 
 export async function streamAgentChat(
   token: string,
-  input: { message: string; threadId: string },
+  input: {
+    message: string;
+    threadId: string;
+    llm?: { providerId: string; model?: string };
+    selectedTool?: {
+      id: string;
+      category: string;
+      name: string;
+    };
+  },
   onEvent: (event: AgentStreamEvent) => void,
 ) {
   const res = await fetch(`${API_URL}/api/agent/chat`, {
@@ -49,7 +59,10 @@ export async function streamAgentChat(
   });
 
   if (!res.ok || !res.body) {
-    throw new Error("Agent request failed");
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(
+      errorData.error || errorData.message || `Agent request failed with status ${res.status}`,
+    );
   }
 
   const reader = res.body.getReader();
@@ -80,3 +93,23 @@ export async function streamAgentChat(
     if (done) break;
   }
 }
+
+export async function deleteThreadApi(token: string, threadId: string) {
+  return apiFetch<{ success: boolean }>(`/api/agent/threads/${threadId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function updateThreadApi(
+  token: string,
+  threadId: string,
+  updates: { title?: string; isPinned?: boolean },
+) {
+  return apiFetch<{ thread: ThreadSummary }>(`/api/agent/threads/${threadId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(updates),
+  });
+}
+
