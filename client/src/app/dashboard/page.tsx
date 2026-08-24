@@ -49,7 +49,6 @@ function DashboardPage() {
       <ChatPanel
         sessionToken={sessionToken}
         userLabel={isUserLoading ? "Loading..." : label}
-        connections={<ConnectionsPanel sessionToken={sessionToken} />}
         footer={
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2.5 px-1 py-1">

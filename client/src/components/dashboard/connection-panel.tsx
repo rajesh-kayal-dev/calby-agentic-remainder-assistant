@@ -1,9 +1,10 @@
 "use client";
 
 import { ConnectionInfo } from "@/lib/types";
+import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
 import { useCallback, useEffect, useState } from "react";
 import { Skeleton } from "../ui/skeleton";
-import { CalendarDays, RefreshCcw } from "lucide-react";
+import { RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import {
@@ -98,7 +99,7 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
               connected ? styles.iconBoxConnected : styles.iconBoxDisconnected,
             )}
           >
-            <CalendarDays className={styles.icon} />
+            <GoogleCalendarLogo className="size-4 shrink-0" />
           </div>
           <div className={styles.meta}>
             <p className={styles.label}>{connection.label}</p>

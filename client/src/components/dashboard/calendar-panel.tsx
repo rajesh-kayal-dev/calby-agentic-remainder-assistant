@@ -7,6 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  GripVertical,
   MapPin,
   Maximize2,
   Minimize2,
@@ -23,6 +24,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { fetchCalendarConnection } from "@/lib/connections";
 import { ConnectionInfo } from "@/lib/types";
+import { CalbyTooltip } from "../ui/calby-tooltip";
 
 type CalendarEvent = {
   id: string;
@@ -251,50 +253,9 @@ export function CalendarPanel({
     return currentEvents.find((evt) => evt.id === selectedEventId) ?? null;
   }, [currentEvents, selectedEventId]);
 
-  /* Render Collapsed Vertical Rail */
+  /* Render Collapsed Fallback (0px layout width handled by parent section) */
   if (isCollapsed && !isMobileDrawer) {
-    return (
-      <div
-        onClick={onToggleCollapse}
-        className="group flex h-full w-12 cursor-pointer flex-col items-center justify-between border-l border-zinc-800/80 bg-[#0C0C0E] py-4 text-zinc-400 hover:bg-zinc-900/60 hover:text-white transition-all duration-200 select-none"
-        title="Expand Calendar"
-        role="button"
-        tabIndex={0}
-        aria-label="Expand Calendar"
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            onToggleCollapse?.();
-          }
-        }}
-      >
-        <div className="flex flex-col items-center gap-3">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleCollapse?.();
-            }}
-            className="flex size-8 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-            title="Expand Calendar"
-            aria-label="Expand Calendar"
-          >
-            <PanelRightOpen className="size-4 text-lime-400" />
-          </button>
-
-          <span className="size-2 rounded-full bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.6)]" />
-        </div>
-
-        {/* Vertical Text */}
-        <div className="flex items-center gap-2 [writing-mode:vertical-lr] rotate-180 text-xs font-semibold uppercase tracking-widest text-zinc-400 group-hover:text-white transition-colors">
-          <span>Calendar</span>
-          <span className="text-[10px] text-zinc-600 font-mono tracking-normal">
-            {monthYearLabel.slice(0, 3)}
-          </span>
-        </div>
-
-        <CalendarIcon className="size-4 text-zinc-600 group-hover:text-lime-400 transition-colors" />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -309,26 +270,42 @@ export function CalendarPanel({
         width: !isFullscreen && !isMobileDrawer && width ? `${width}px` : undefined,
       }}
     >
-      {/* Horizontal Left Resize Handle */}
+      {/* Vertical Stretch / Drag Handle with Grip Icon */}
       {!isFullscreen && !isMobileDrawer && onResizeStart && (
         <div
           onMouseDown={onResizeStart}
-          className="group/handle absolute inset-y-0 -left-1 w-2 cursor-col-resize z-30 hover:bg-lime-400/40 transition-colors flex items-center justify-center"
-          title="Drag to resize Calendar panel"
+          className="group/handle absolute inset-y-0 -left-2 w-4 cursor-col-resize z-30 flex items-center justify-center select-none"
           role="separator"
           aria-orientation="vertical"
+          aria-label="Drag to stretch Calendar workspace"
           tabIndex={0}
         >
-          <div className="h-8 w-0.5 rounded-full bg-zinc-700 group-hover/handle:bg-lime-400 transition-colors" />
+          {/* Divider Line */}
+          <div className="h-full w-[1px] bg-zinc-800 group-hover/handle:bg-lime-400/60 transition-colors" />
+
+          {/* Centered Floating Stretch Handle Icon */}
+          <div className="absolute top-1/2 -translate-y-1/2 flex h-8 w-4 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/90 text-zinc-500 group-hover/handle:border-lime-400/50 group-hover/handle:bg-zinc-800 group-hover/handle:text-lime-400 shadow-md transition-all duration-200">
+            <GripVertical className="size-3.5" />
+          </div>
         </div>
       )}
 
       {/* Calendar Header with Controls */}
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800/80 px-4 bg-[#0C0C0E] z-10">
         <div className="flex items-center gap-2.5 min-w-0">
-          <CalendarIcon className="size-4 text-lime-400 shrink-0" />
+          <CalbyTooltip content={isCollapsed ? "Open Calendar" : "Close Calendar"} side="bottom">
+            <button
+              type="button"
+              onClick={onToggleCollapse || onClose}
+              className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800 hover:text-white transition-all shadow-sm group shrink-0"
+              aria-label={isCollapsed ? "Open Calendar" : "Close Calendar"}
+            >
+              <CalendarIcon className="size-5 text-lime-400 group-hover:scale-105 transition-transform" />
+            </button>
+          </CalbyTooltip>
+
           <span className="text-xs font-semibold uppercase tracking-wider text-white truncate">
-            Calendar
+            Calendar Workspace
           </span>
           {connection?.status === "connected" && (
             <span className="inline-flex items-center gap-1 rounded-full bg-lime-400/10 border border-lime-400/25 px-1.5 py-0.5 text-[9px] font-medium text-lime-400 shrink-0">
@@ -342,38 +319,27 @@ export function CalendarPanel({
           </span>
         </div>
 
-        {/* Action Controls: Fullscreen, Collapse, Close */}
+        {/* Action Controls: Expand / Fullscreen Toggle Only (No X button) */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Full Screen Toggle */}
           {onToggleFullscreen && !isMobileDrawer && (
-            <button
-              type="button"
-              onClick={onToggleFullscreen}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors",
-                isFullscreen && "bg-lime-400/10 border-lime-400/30 text-lime-400"
-              )}
-              title={isFullscreen ? "Exit Full Screen" : "Full Screen Calendar"}
-              aria-label={isFullscreen ? "Exit Full Screen" : "Full Screen Calendar"}
-            >
-              {isFullscreen ? (
-                <Minimize2 className="size-3.5" />
-              ) : (
-                <Maximize2 className="size-3.5" />
-              )}
-            </button>
+            <CalbyTooltip content={isFullscreen ? "Exit Fullscreen" : "Expand Calendar"} side="bottom">
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors",
+                  isFullscreen && "bg-lime-400/10 border-lime-400/30 text-lime-400"
+                )}
+                aria-label={isFullscreen ? "Exit Fullscreen" : "Expand Calendar"}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="size-4" />
+                ) : (
+                  <Maximize2 className="size-4" />
+                )}
+              </button>
+            </CalbyTooltip>
           )}
-
-          {/* Full Close Button (X) */}
-          <button
-            type="button"
-            onClick={onClose || onToggleCollapse}
-            className="flex size-7 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-            title="Close Calendar"
-            aria-label="Close Calendar"
-          >
-            <X className="size-3.5" />
-          </button>
         </div>
       </div>
 

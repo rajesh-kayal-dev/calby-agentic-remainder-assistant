@@ -10,6 +10,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  RefreshCcw,
   Search,
   Sparkles,
   X,
@@ -20,6 +21,7 @@ import {
   ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -37,6 +39,18 @@ import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "./markdown-message";
 import { CalendarPanel } from "./calendar-panel";
 import { CalendarWorkspace } from "./calendar/calendar-workspace";
+import { DashboardAmbientBackground } from "./dashboard-ambient-background";
+import { CalbyTooltip } from "../ui/calby-tooltip";
+import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
+import { AccountPopover } from "./settings/account-popover";
+import { SettingsView, SettingsTabId } from "./settings/settings-view";
+import { ProfileModal } from "./settings/profile-modal";
+import {
+  connectCalendar,
+  fetchCalendarConnection,
+  refreshCalendarConnection,
+} from "@/lib/connections";
+import { ConnectionInfo } from "@/lib/types";
 
 const styles = {
   shell:
@@ -113,7 +127,7 @@ const styles = {
   assistantArea:
     "relative flex min-w-0 flex-1 flex-col bg-zinc-950 overflow-hidden",
   assistantHeader:
-    "flex h-12 shrink-0 items-center justify-between border-b border-zinc-800/60 bg-zinc-950/90 px-4 backdrop-blur-md sm:px-6",
+    "relative z-10 flex h-12 shrink-0 items-center justify-between border-b border-zinc-800/60 bg-zinc-950/90 px-4 backdrop-blur-md sm:px-6",
   assistantHeaderText: "flex items-center gap-2",
   assistantTitle: "text-xs font-semibold tracking-tight text-white flex items-center gap-1.5",
   assistantPulseDot: "size-1.5 rounded-full bg-lime-400",
@@ -124,7 +138,7 @@ const styles = {
 
   /* Empty State */
   emptyState:
-    "flex min-h-[58vh] flex-col items-center justify-center text-center px-4 py-8",
+    "relative flex min-h-[58vh] flex-col items-center justify-center text-center px-4 py-8 z-10",
   emptyLogoWrap:
     "mb-5 relative flex size-16 items-center justify-center rounded-2xl bg-zinc-900/90 border border-zinc-800/90 shadow-xl ring-1 ring-lime-400/20",
   emptyLogoImg: "h-9 w-auto object-contain",
@@ -145,16 +159,16 @@ const styles = {
     "size-1.5 rounded-full bg-lime-400/60 group-hover:bg-lime-400 shrink-0 transition-colors",
 
   /* Message List & Rows */
-  messageList: "space-y-6 pb-4",
+  messageList: "space-y-6 pb-4 relative z-10",
   messageRow: "message-enter flex w-full min-w-0 gap-3",
   messageRowUser: "justify-end",
   messageRowAssistant: "justify-start items-start",
   assistantAvatar:
     "flex size-7 shrink-0 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 text-lime-400 shadow-sm mt-0.5",
   bubbleUser:
-    "rounded-2xl rounded-tr-none bg-zinc-800/90 border border-zinc-700/80 px-4 py-3 text-zinc-100 text-sm leading-relaxed max-w-[85%] sm:max-w-lg shadow-sm",
+    "rounded-2xl rounded-tr-none bg-zinc-800/90 border border-zinc-700/80 px-4 py-3 text-zinc-100 text-sm leading-relaxed max-w-[85%] sm:max-w-lg shadow-sm backdrop-blur-sm",
   bubbleAssistant:
-    "rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800/90 p-4 text-zinc-200 text-sm leading-relaxed max-w-full sm:max-w-2xl shadow-md min-w-0 flex-1",
+    "rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800/90 p-4 text-zinc-200 text-sm leading-relaxed max-w-full sm:max-w-2xl shadow-md min-w-0 flex-1 backdrop-blur-sm",
   bubbleSystem:
     "rounded-xl bg-red-950/30 border border-red-800/40 px-3.5 py-2 text-xs text-red-300",
 
@@ -165,7 +179,7 @@ const styles = {
 
   /* Command Bar Input */
   composerWrap:
-    "shrink-0 border-t border-zinc-800/80 bg-zinc-950/95 px-4 py-3 backdrop-blur-md sm:px-6",
+    "relative z-10 shrink-0 border-t border-zinc-800/80 bg-zinc-950/95 px-4 py-3 backdrop-blur-md sm:px-6",
   composerForm:
     "composer-glow mx-auto flex w-full max-w-3xl items-end gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-2 shadow-2xl focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-lime-400/20 transition-all",
   quickActionBtn:
@@ -185,7 +199,7 @@ type Props = {
   userLabel?: string;
   onLogout?: () => void;
   loggingOut?: boolean;
-  initialView?: "assistant" | "calendar";
+  initialView?: "assistant" | "calendar" | "settings";
 };
 
 type Message = {
@@ -232,11 +246,253 @@ function WelcomeMessage(): Message {
   };
 }
 
+function GoogleCalendarNavItem({
+  sessionToken,
+  onOpenOverlay,
+}: {
+  sessionToken: string;
+  onOpenOverlay: () => void;
+}) {
+  const [connection, setConnection] = useState<ConnectionInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    if (!sessionToken) return;
+    try {
+      const data = await fetchCalendarConnection(sessionToken);
+      setConnection(data);
+    } catch {
+      setConnection(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionToken]);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const handleSyncOrConnect = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (busy || !sessionToken) return;
+
+    setBusy(true);
+    try {
+      if (connection?.status === "connected") {
+        await refreshCalendarConnection(sessionToken);
+        await loadStatus();
+      } else {
+        await connectCalendar(sessionToken);
+      }
+    } catch {
+      console.error("Calendar sync/connect failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const status = connection?.status || "disconnected";
+  const connected = status === "connected";
+  const pending = status === "pending" || loading;
+  const isError = status === "error";
+
+  let statusText = "Not connected";
+  let statusClass = "text-zinc-500";
+  let tooltipText = "Connect Google Calendar";
+
+  if (connected) {
+    statusText = "Connected";
+    statusClass = "text-lime-400";
+    tooltipText = "Sync Google Calendar";
+  } else if (pending) {
+    statusText = "Connecting...";
+    statusClass = "text-zinc-400";
+    tooltipText = "Connecting to Google Calendar";
+  } else if (isError) {
+    statusText = "Connection failed";
+    statusClass = "text-red-400";
+    tooltipText = "Retry Connection";
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        e.preventDefault();
+        onOpenOverlay();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenOverlay();
+        }
+      }}
+      className="group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200 hover:border-zinc-700/60 active:bg-zinc-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-lime-400 transition-all duration-150 select-none cursor-pointer"
+      aria-label="Open Google Calendar Workspace"
+      title="Open Google Calendar Workspace"
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        <GoogleCalendarLogo className="size-5 shrink-0 transition-transform group-hover:scale-105" />
+        <div className="flex flex-col text-left min-w-0">
+          <span className="truncate leading-tight">Google Calendar</span>
+          <span className={cn("text-[10px] font-medium leading-none mt-0.5", statusClass)}>
+            {statusText}
+          </span>
+        </div>
+      </div>
+
+      <CalbyTooltip content={tooltipText} side="right">
+        <button
+          type="button"
+          onClick={handleSyncOrConnect}
+          disabled={busy}
+          className="flex size-6 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+          aria-label={tooltipText}
+        >
+          <RefreshCcw
+            className={cn(
+              "size-3.5 transition-all",
+              busy
+                ? "animate-spin text-lime-400"
+                : connected
+                ? "text-zinc-400 hover:text-lime-400"
+                : "text-zinc-500 hover:text-lime-400"
+            )}
+          />
+        </button>
+      </CalbyTooltip>
+    </div>
+  );
+}
+
+function GoogleCalendarOverlay({
+  isOpen,
+  onClose,
+  sessionToken,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  sessionToken: string;
+}) {
+  const [connectionStatus, setConnectionStatus] = useState<string>("connected");
+
+  useEffect(() => {
+    if (sessionToken && isOpen) {
+      fetchCalendarConnection(sessionToken)
+        .then((conn) => setConnectionStatus(conn?.status || "connected"))
+        .catch(() => {});
+    }
+  }, [sessionToken, isOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const connected = connectionStatus === "connected";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md transition-opacity duration-300 animate-in fade-in duration-200 p-0 sm:p-4 md:p-6 select-none">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 z-0"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Centered Large Application Workspace Window */}
+      <div
+        className="relative z-10 flex w-full sm:w-[94vw] max-w-[1450px] h-full sm:h-[90vh] max-h-[900px] flex-col overflow-hidden rounded-none sm:rounded-2xl border-0 sm:border border-zinc-800/90 bg-[#0C0C0E] shadow-2xl ring-1 ring-white/10 animate-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Google Calendar Workspace"
+      >
+        {/* Calby Header */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800/80 px-4 sm:px-6 bg-[#0C0C0E]/95 z-20">
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 shadow-sm">
+              <GoogleCalendarLogo className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight text-white flex items-center gap-2">
+                Google Calendar
+                <span
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                    connected
+                      ? "border-lime-400/30 bg-lime-400/10 text-lime-400"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-400"
+                  )}
+                >
+                  {connected ? "Connected" : "Sync Active"}
+                </span>
+              </p>
+              <p className="text-[11px] text-zinc-400">
+                Calby Embedded Workspace
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <CalbyTooltip content="Close Calendar" side="bottom">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/90 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all shadow-sm group"
+                aria-label="Close Calendar"
+              >
+                <X className="size-4 group-hover:scale-110 transition-transform" />
+              </button>
+            </CalbyTooltip>
+          </div>
+        </header>
+
+        {/* Embedded Google Calendar Workspace Body */}
+        <div className="relative flex min-h-0 flex-1 flex-col bg-[#050505] overflow-hidden">
+          <iframe
+            src="https://calendar.google.com/calendar/embed?src=primary"
+            title="Google Calendar Workspace"
+            className="size-full border-0 rounded-b-2xl bg-zinc-950"
+            allow="fullscreen"
+          />
+
+          {/* Web Access Fallback Bar */}
+          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-3 rounded-xl border border-zinc-800/90 bg-zinc-900/90 px-4 py-2.5 shadow-2xl backdrop-blur-md">
+            <span className="text-xs text-zinc-300">
+              Need direct web view?
+            </span>
+            <a
+              href="https://calendar.google.com/"
+              target="_self"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-lime-400 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-lime-300 transition-colors shadow-sm"
+            >
+              <span>Open Google Calendar</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function ChatPanel({
   sessionToken,
   connections,
   footer,
-  userLabel = "Rajesh",
+  userLabel = "Rajesh Kayal",
   onLogout,
   loggingOut = false,
   initialView = "assistant",
@@ -251,11 +507,23 @@ function ChatPanel({
   const [progress, setProgress] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<"assistant" | "calendar">(initialView);
+  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings">(initialView);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("ai-providers");
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [currentUserLabel, setCurrentUserLabel] = useState(userLabel || "Rajesh Kayal");
   const [calendarWidth, setCalendarWidth] = useState<number>(380);
-  const [calendarCollapsed, setCalendarCollapsed] = useState<boolean>(false);
+  const [calendarCollapsed, setCalendarCollapsed] = useState<boolean>(true);
   const [calendarFullscreen, setCalendarFullscreen] = useState<boolean>(false);
   const [isDraggingCalendar, setIsDraggingCalendar] = useState<boolean>(false);
+  const [googleCalendarOverlayOpen, setGoogleCalendarOverlayOpen] = useState<boolean>(false);
+
+  const todayFormatted = useMemo(() => {
+    const d = new Date();
+    const day = d.getDate();
+    const month = d.toLocaleDateString("en-US", { month: "short" });
+    return `${day} ${month}`;
+  }, []);
+
 
   const handleCalendarResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -437,7 +705,27 @@ function ChatPanel({
     t.title.toLowerCase().includes(searchQuery.toLowerCase().trim()),
   );
 
-  const userInitial = userLabel ? userLabel.charAt(0).toUpperCase() : "U";
+  const userInitial = currentUserLabel ? currentUserLabel.charAt(0).toUpperCase() : "R";
+
+  if (activeView === "settings") {
+    return (
+      <div className={styles.shell}>
+        <SettingsView
+          sessionToken={sessionToken}
+          userLabel={currentUserLabel}
+          initialTab={settingsTab}
+          onBackToAssistant={() => setActiveView("assistant")}
+          onOpenCalendarWorkspace={() => setGoogleCalendarOverlayOpen(true)}
+        />
+        <ProfileModal
+          isOpen={profileModalOpen}
+          onClose={() => setProfileModalOpen(false)}
+          userLabel={currentUserLabel}
+          onUpdateName={(name) => setCurrentUserLabel(name)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.shell}>
@@ -467,15 +755,24 @@ function ChatPanel({
         </div>
 
         <div className={styles.topBarRight}>
-          <button
-            type="button"
-            onClick={() => setCalendarOpen((prev) => !prev)}
-            className="flex xl:hidden items-center gap-1.5 px-2.5 py-1 rounded-xl border border-zinc-800 bg-zinc-900/80 text-xs text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
-            aria-label="Toggle Calendar View"
-          >
-            <Calendar className="size-3.5 text-lime-400" />
-            <span className="hidden sm:inline font-medium">Calendar</span>
-          </button>
+          <CalbyTooltip content={calendarOpen ? "Close Calendar" : "Open Calendar"} side="bottom">
+            <button
+              type="button"
+              onClick={() => setCalendarOpen((prev) => !prev)}
+              className={cn(
+                "flex xl:hidden items-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/90 px-2.5 py-1.5 text-xs text-zinc-300 hover:text-white hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200 shadow-sm group select-none",
+                calendarOpen && "bg-zinc-800/90 border-lime-400/30 text-white"
+              )}
+              aria-label={calendarOpen ? "Close Calendar" : "Open Calendar"}
+            >
+              <span className="flex items-center gap-1 font-semibold text-zinc-200 group-hover:text-white">
+                <span className="size-1.5 rounded-full bg-lime-400 animate-pulse" />
+                <span>{todayFormatted}</span>
+              </span>
+              <span className="text-zinc-600">·</span>
+              <Calendar className="size-4 text-lime-400 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300" />
+            </button>
+          </CalbyTooltip>
 
           <div className={styles.modelPill}>
             <span className={styles.modelDot} />
@@ -485,7 +782,7 @@ function ChatPanel({
           <div className={styles.userChip}>
             <div className={styles.userAvatar}>{userInitial}</div>
             <span className="max-w-[120px] truncate font-medium hidden sm:inline">
-              {userLabel}
+              {currentUserLabel}
             </span>
           </div>
         </div>
@@ -572,6 +869,12 @@ function ChatPanel({
               />
               <span>Calendar Workspace</span>
             </button>
+
+            {/* Unified Single Google Calendar Item */}
+            <GoogleCalendarNavItem
+              sessionToken={sessionToken}
+              onOpenOverlay={() => setGoogleCalendarOverlayOpen(true)}
+            />
           </div>
 
           <Separator className="bg-zinc-800/80" />
@@ -610,11 +913,6 @@ function ChatPanel({
               New Chat
             </Button>
           </div>
-
-          <Separator className="bg-zinc-800/80" />
-
-          {/* Connections Section */}
-          <div className={styles.connectionsSection}>{connections}</div>
 
           <Separator className="bg-zinc-800/80" />
 
@@ -679,8 +977,19 @@ function ChatPanel({
 
           <Separator className="bg-zinc-800/80" />
 
-          {/* User Footer */}
-          <div className={styles.sidebarFooter}>{footer}</div>
+          {/* User Account Profile Footer */}
+          <div className={styles.sidebarFooter}>
+            <AccountPopover
+              userLabel={currentUserLabel}
+              onOpenProfile={() => setProfileModalOpen(true)}
+              onOpenSettings={() => {
+                setSettingsTab("ai-providers");
+                setActiveView("settings");
+              }}
+              onLogout={onLogout}
+              loggingOut={loggingOut}
+            />
+          </div>
         </aside>
 
         {/* Dynamic View: Calendar Workspace vs AI Assistant View */}
@@ -688,7 +997,7 @@ function ChatPanel({
           <div className="flex min-w-0 flex-1 overflow-hidden">
             <CalendarWorkspace
               sessionToken={sessionToken}
-              userLabel={userLabel}
+              userLabel={currentUserLabel}
               onAskCalby={(calbyPrompt) => {
                 setActiveView("assistant");
                 if (calbyPrompt) {
@@ -718,6 +1027,9 @@ function ChatPanel({
           <>
             {/* Center: Assistant Area */}
             <section className={styles.assistantArea}>
+              {/* Subtle Animated AI Ambient Background */}
+              <DashboardAmbientBackground opacity={0.55} showGlow={true} />
+
               <div className={styles.assistantHeader}>
                 <div className={styles.assistantHeaderText}>
                   <span className={styles.assistantPulseDot} />
@@ -728,27 +1040,56 @@ function ChatPanel({
                   </p>
                 </div>
 
-                {/* Reopen Calendar Button when collapsed on desktop */}
-                {calendarCollapsed && (
+                {/* Right Side Calendar Date Toggle Button ("24 Aug" + moving toggle animation) */}
+                <CalbyTooltip content={calendarCollapsed ? "Open Calendar" : "Close Calendar"} side="bottom">
                   <button
                     type="button"
-                    onClick={() => setCalendarCollapsed(false)}
-                    className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border border-zinc-800 bg-zinc-900/90 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all shadow-sm group animate-in fade-in duration-200"
-                    aria-label="Open calendar"
-                    title="Open calendar"
+                    onClick={() => setCalendarCollapsed((prev) => !prev)}
+                    className={cn(
+                      "hidden xl:flex items-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 hover:text-white hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200 shadow-sm group relative overflow-hidden select-none",
+                      !calendarCollapsed && "bg-zinc-800/90 border-lime-400/30 text-white shadow-[0_0_12px_rgba(163,230,53,0.15)]"
+                    )}
+                    aria-label={calendarCollapsed ? "Open Calendar" : "Close Calendar"}
                   >
-                    <PanelRightOpen className="size-3.5 text-lime-400 group-hover:scale-110 transition-transform" />
-                    <span>Open Calendar</span>
+                    {/* Animated Neon Lime Accent Edge */}
+                    <span
+                      className={cn(
+                        "absolute left-0 top-0 bottom-0 w-0.5 bg-lime-400 transition-all duration-300 opacity-0 group-hover:opacity-100",
+                        !calendarCollapsed && "opacity-100 w-1"
+                      )}
+                    />
+
+                    {/* Live Date Badge ("24 Aug") */}
+                    <span className="flex items-center gap-1.5 font-medium tracking-tight">
+                      <span className="size-1.5 rounded-full bg-lime-400 animate-pulse shadow-[0_0_6px_rgba(163,230,53,0.8)]" />
+                      <span className="text-zinc-200 group-hover:text-white font-semibold">
+                        {todayFormatted}
+                      </span>
+                    </span>
+
+                    <span className="text-zinc-600">·</span>
+
+                    {/* Moving Calendar Toggle Icon */}
+                    <div className="relative flex items-center justify-center">
+                      <Calendar className="size-4 text-lime-400 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300" />
+                      <PanelRightOpen
+                        className={cn(
+                          "size-3 text-lime-400 absolute -right-1 -bottom-1 transition-all duration-300 transform",
+                          calendarCollapsed ? "rotate-0 opacity-75 group-hover:translate-x-0.5" : "rotate-180 opacity-100"
+                        )}
+                      />
+                    </div>
                   </button>
-                )}
+                </CalbyTooltip>
               </div>
 
-              <div className="relative flex min-h-0 flex-1 flex-col">
+              <div className="relative flex min-h-0 flex-1 flex-col z-10">
                 <ScrollArea className={styles.messagesScroll}>
                   <div className={styles.messagesInner}>
                     {showEmpty ? (
                       /* Redesigned Clean Centered Empty State */
                       <div className={styles.emptyState}>
+
                         <div className={styles.emptyLogoWrap}>
                           <img
                             src="/logo.png"
@@ -959,6 +1300,21 @@ function ChatPanel({
           </div>
         </div>
       )}
+
+      {/* Google Calendar Native Workspace Overlay Window */}
+      <GoogleCalendarOverlay
+        isOpen={googleCalendarOverlayOpen}
+        onClose={() => setGoogleCalendarOverlayOpen(false)}
+        sessionToken={sessionToken}
+      />
+
+      {/* Profile Details Modal */}
+      <ProfileModal
+        isOpen={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        userLabel={currentUserLabel}
+        onUpdateName={(name) => setCurrentUserLabel(name)}
+      />
     </div>
   );
 }

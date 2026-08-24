@@ -28,6 +28,7 @@ import { ConnectedCalendars } from "./connected-calendars";
 import { WeekView } from "./week-view";
 import { CalendarEventItem } from "./event-card";
 import { Button } from "@/components/ui/button";
+import { CalbyTooltip } from "@/components/ui/calby-tooltip";
 
 const INITIAL_EVENTS: CalendarEventItem[] = [
   {
@@ -345,9 +346,25 @@ export function CalendarWorkspace({
         {/* Workspace App Header */}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800/80 px-4 sm:px-6 bg-[#0C0C0E]/90 z-10">
           <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-xl bg-lime-400/10 border border-lime-400/30 text-lime-400">
-              <CalendarIcon className="size-4" />
-            </div>
+            {onExitFullscreen || onAskCalby ? (
+              <CalbyTooltip content="Close Calendar" side="bottom">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onExitFullscreen) onExitFullscreen();
+                    else if (onAskCalby) onAskCalby();
+                  }}
+                  className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800 hover:text-white transition-all shadow-sm group"
+                  aria-label="Close Calendar"
+                >
+                  <CalendarIcon className="size-5 text-lime-400 group-hover:scale-105 transition-transform" />
+                </button>
+              </CalbyTooltip>
+            ) : (
+              <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 border border-lime-400/30 text-lime-400">
+                <CalendarIcon className="size-5" />
+              </div>
+            )}
             <div>
               <p className="text-sm font-semibold tracking-tight text-white flex items-center gap-1.5">
                 Calby Calendar
@@ -429,16 +446,16 @@ export function CalendarWorkspace({
 
             {/* Exit Fullscreen Button */}
             {onExitFullscreen && (
-              <button
-                type="button"
-                onClick={onExitFullscreen}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-zinc-700/90 bg-zinc-900/90 px-3 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 hover:text-white transition-all shadow-sm group"
-                title="Exit Full Screen"
-                aria-label="Exit Full Screen"
-              >
-                <Minimize2 className="size-3.5 text-lime-400 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">Exit Full Screen</span>
-              </button>
+              <CalbyTooltip content="Exit Fullscreen" side="bottom">
+                <button
+                  type="button"
+                  onClick={onExitFullscreen}
+                  className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+                  aria-label="Exit Fullscreen"
+                >
+                  <Minimize2 className="size-4 text-lime-400" />
+                </button>
+              </CalbyTooltip>
             )}
 
             {/* User Profile Avatar */}
