@@ -8,7 +8,11 @@ import { userRouter } from "./routes/user.routes.js";
 import { notificationRouter } from "./routes/notification.routes.js";
 import { llmRouter } from "./routes/llm.routes.js";
 import { toolsRouter } from "./routes/tools.routes.js";
+import { reminderRoutes } from "./routes/reminder.routes.js";
+import { contactRouter } from "./routes/contact.routes.js";
+import { webhookRouter } from "./routes/webhook.routes.js";
 import { mountMcpServer } from "./mcp/mount.js";
+import { globalScheduler } from "./services/reminder-scheduler.service.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
@@ -36,21 +40,26 @@ app.get("/health", async (_req, res) => {
   }
 });
 
+app.use("/api/webhooks", webhookRouter);
 app.use("/api/connections", connectionRouter);
 app.use("/api/agent", agentRoutes);
 app.use("/api/user", userRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/llm", llmRouter);
 app.use("/api/tools", toolsRouter);
+app.use("/api/reminders", reminderRoutes);
+app.use("/api/contacts", contactRouter);
 
 mountMcpServer(app);
 
 const server = app.listen(port, () => {
   console.log(`Calby is running on http://localhost:${port}`);
+  globalScheduler.start();
 });
 
 async function shutdown(signal: string) {
   console.log(`Received ${signal}. Shutting down gracefully...`);
+  globalScheduler.stop();
   server.close(async () => {
     await closePool();
     process.exit(0);

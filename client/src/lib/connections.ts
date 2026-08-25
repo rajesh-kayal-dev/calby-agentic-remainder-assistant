@@ -33,3 +33,93 @@ export async function refreshCalendarConnection(token: string) {
     token,
   });
 }
+
+export async function createTelegramIntentApi(token: string) {
+  return apiFetch<{ token: string; botUrl: string; expiresAt: string }>(
+    "/api/connections/telegram/intent",
+    { method: "POST", token },
+  );
+}
+
+export async function fetchTelegramStatusApi(token: string) {
+  return apiFetch<{
+    connection: {
+      connected: boolean;
+      status: "connected" | "disconnected" | "pending";
+      chatId?: string | null;
+      username?: string | null;
+    };
+  }>("/api/connections/telegram/status", { token });
+}
+
+export async function disconnectTelegramApi(token: string) {
+  return apiFetch<{ success: boolean }>("/api/connections/telegram/disconnect", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function configureWhatsAppApi(
+  token: string,
+  body: {
+    phoneNumberId: string;
+    accessToken: string;
+    businessAccountId?: string;
+    displayPhoneNumber?: string;
+  },
+) {
+  return apiFetch<{
+    success: boolean;
+    connection: {
+      connected: boolean;
+      status: "connected" | "disconnected" | "error";
+      phoneNumberId?: string | null;
+      displayPhoneNumber?: string | null;
+      businessAccountId?: string | null;
+    };
+  }>("/api/connections/whatsapp/configure", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export async function fetchWhatsAppStatusApi(token: string) {
+  return apiFetch<{
+    connection: {
+      connected: boolean;
+      status: "connected" | "disconnected" | "error";
+      phoneNumberId?: string | null;
+      displayPhoneNumber?: string | null;
+      businessAccountId?: string | null;
+    };
+  }>("/api/connections/whatsapp/status", { token });
+}
+
+export async function disconnectWhatsAppApi(token: string) {
+  return apiFetch<{ success: boolean }>("/api/connections/whatsapp/disconnect", {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function fetchGoogleAuthUrlApi(token: string) {
+  return apiFetch<{ url: string }>("/api/connections/google/auth-url", { token });
+}
+
+export async function fetchGmailStatusApi(token: string) {
+  return apiFetch<{
+    connection: {
+      connected: boolean;
+      email?: string;
+      scopes?: string[];
+    };
+  }>("/api/connections/gmail/status", { token });
+}
+
+export async function disconnectGmailApi(token: string) {
+  return apiFetch<{ success: boolean }>("/api/connections/gmail/disconnect", {
+    method: "DELETE",
+    token,
+  });
+}

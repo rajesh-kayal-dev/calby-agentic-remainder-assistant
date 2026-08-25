@@ -4,18 +4,30 @@ import { getPool } from "../db/pool.js";
 import { decryptCredentials } from "./encryption.service.js";
 import { getLLMAdapter } from "./llm/llm-factory.service.js";
 import { getProviderDefinition } from "./llm/providers.registry.js";
-import { LLMProviderError, ChatMessage } from "./llm/llm-provider.interface.js";
+import {
+  LLMProviderError,
+  ChatMessage,
+  NormalizedToolCall,
+  NormalizedToolResult,
+  getDetailedCapabilities,
+} from "./llm/llm-provider.interface.js";
 import { UserLLMConnectionRow } from "../repositories/llm-connection.repository.js";
 import {
   listUserConversations,
   getOrCreateConversation,
+  updateConversation,
   deleteConversation,
   getConversationMessages,
   createMessage,
   updateMessage,
+  reconstructChatMessagesHistory,
   MessageDTO,
 } from "../repositories/chat.repository.js";
-import { TOOLS_REGISTRY } from "../tools/tools.registry.js";
+import {
+  TOOLS_REGISTRY,
+  getNormalizedToolsRegistry,
+  formatToolResultToChatMessage,
+} from "../tools/tools.registry.js";
 import { executeTool } from "../tools/tool-router.js";
 
 export type AgentEvent = {
@@ -47,41 +59,17 @@ export type ThreadSummary = {
 
 export type ThreadMessage = {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
 };
 
 const threadLocks = new Map<string, Promise<void>>();
 
-function buildSystemInstructionsWithTools(): string {
-  const base = getAgentInstructions();
-  const toolList = Object.values(TOOLS_REGISTRY)
-    .map((t) => `- ${t.id}: ${t.description} (Category: ${t.category})`)
-    .join("\n");
+const MAX_AGENT_TURNS = 5;
+const MAX_TOOL_CALLS_PER_TURN = 10;
 
-  return `${base}
-
-# AUTOMATED TOOL CALLING CAPABILITY
-You are an intelligent calendar & executive assistant. You can automatically decide when to call backend tools to answer the user's request.
-
-To call a tool, output a single JSON code block formatted EXACTLY as:
-\`\`\`json
-{
-  "tool_call": {
-    "name": "<tool_id>",
-    "arguments": { ... }
-  }
-}
-\`\`\`
-
-Available Tools:
-${toolList}
-
-Rules:
-1. If the user asks a question about their schedule, meetings, free time, or creating/updating events, choose the appropriate tool from above and output the JSON tool_call block.
-2. Output ONLY the JSON block when making a tool call, without extra conversational text before it.
-3. When tool results are provided to you in subsequent turns, summarize them in clear, helpful natural language with clean event lists.
-`;
+function buildSystemInstructions(): string {
+  return getAgentInstructions();
 }
 
 function getProgressLabel(toolId: string): string {
@@ -214,6 +202,15 @@ async function executeAgentStream(
     const creds = decryptCredentials(conn.encrypted_credentials);
     const adapter = getLLMAdapter(conn.provider_id);
 
+    // Capability resolution
+    const detailedCaps = adapter.getDetailedCapabilities
+      ? adapter.getDetailedCapabilities(effectiveModel)
+      : getDetailedCapabilities(adapter.getCapabilities(effectiveModel));
+
+    const normalizedTools = detailedCaps.supportsToolCalling
+      ? getNormalizedToolsRegistry()
+      : undefined;
+
     // 2. Get or create PostgreSQL conversation
     const conv = await getOrCreateConversation({
       id: input.threadId,
@@ -222,6 +219,14 @@ async function executeAgentStream(
       providerId: conn.provider_id,
       model: effectiveModel,
     });
+
+    // If conversation had pending confirmation, clear it now since request processed
+    if (conv.pending_confirmation) {
+      await updateConversation(input.authUserId, conv.id, {
+        status: "active",
+        pendingConfirmation: null,
+      });
+    }
 
     // 3. Load existing message history from PostgreSQL
     const historyMessages = await getConversationMessages(input.authUserId, conv.id);
@@ -251,13 +256,11 @@ async function executeAgentStream(
       status: "streaming",
     });
 
-    // 6. Build prompt history with automated tool calling capability
+    // 6. Build prompt history from reconstructed PostgreSQL history
+    const reconstructedHistory = reconstructChatMessagesHistory(historyMessages);
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemInstructionsWithTools() },
-      ...historyMessages.map((m) => ({
-        role: m.role as "user" | "assistant" | "system",
-        content: m.content,
-      })),
+      { role: "system", content: buildSystemInstructions() },
+      ...reconstructedHistory,
     ];
 
     if (!lastMsg || lastMsg.role !== "user" || lastMsg.content !== input.message) {
@@ -267,14 +270,15 @@ async function executeAgentStream(
     const modelName = effectiveModel;
     const baseUrl = (conn.config?.baseUrl as string) || def.baseUrl;
 
-    // 7. Multi-step LLM Tool Execution Loop
+    // 7. Native Multi-turn Tool Calling Execution Loop
     let turns = 0;
-    const maxTurns = 5;
     let finalResponseText = "";
+    const executedToolCallIds = new Set<string>();
 
-    while (turns < maxTurns) {
+    while (turns < MAX_AGENT_TURNS) {
       turns++;
       let fullTurnText = "";
+      let turnToolCalls: NormalizedToolCall[] = [];
 
       const stream = await adapter.stream(
         creds,
@@ -283,6 +287,8 @@ async function executeAgentStream(
           messages: chatMessages,
           temperature: 0.7,
           stream: true,
+          tools: normalizedTools,
+          toolChoice: normalizedTools && normalizedTools.length > 0 ? "auto" : undefined,
         },
         baseUrl,
       );
@@ -294,18 +300,24 @@ async function executeAgentStream(
 
         if (event.type === "token") {
           fullTurnText += event.content;
-          // Emit tokens to client if not raw tool_call json block
-          if (!fullTurnText.includes("```json") && !fullTurnText.includes('"tool_call"')) {
-            input.onEvent({
-              type: "token",
-              token: event.content,
-            });
+          input.onEvent({
+            type: "token",
+            token: event.content,
+          });
+        } else if (event.type === "tool_call_start") {
+          input.onEvent({
+            type: "progress",
+            message: getProgressLabel(event.name),
+          });
+        } else if (event.type === "done") {
+          if (event.toolCalls && event.toolCalls.length > 0) {
+            turnToolCalls = event.toolCalls;
           }
         } else if (event.type === "error") {
           await updateMessage(input.authUserId, assistantMsgRecord.id, {
             status: "failed",
           });
-          throw new Error(event.error);
+          throw new LLMProviderError("PROVIDER_UNAVAILABLE", event.error, conn.provider_id);
         }
       }
 
@@ -313,71 +325,132 @@ async function executeAgentStream(
         return;
       }
 
-      // Check if turn generated a tool call
-      const toolCallMatch =
-        fullTurnText.match(/```json\s*(\{[\s\S]*?"tool_call"[\s\S]*?\})\s*```/i) ||
-        fullTurnText.match(/(\{[\s\S]*?"tool_call"[\s\S]*?\})/i);
+      // Check if LLM emitted native tool calls
+      if (turnToolCalls.length > 0) {
+        const safeToolCalls = turnToolCalls.slice(0, MAX_TOOL_CALLS_PER_TURN);
 
-      if (toolCallMatch) {
-        try {
-          const parsedJson = JSON.parse(toolCallMatch[1]);
-          const toolCallObj = parsedJson.tool_call || parsedJson;
-          const targetToolId = toolCallObj.name || toolCallObj.tool;
-          const targetArgs = toolCallObj.arguments || toolCallObj.args || {};
+        // 1. Persist Assistant tool-call turn to PostgreSQL
+        await createMessage({
+          conversationId: conv.id,
+          authUserId: input.authUserId,
+          role: "assistant",
+          content: fullTurnText || null,
+          providerId: conn.provider_id,
+          model: effectiveModel,
+          status: "completed",
+          toolCalls: safeToolCalls,
+        });
 
-          if (targetToolId) {
-            // Emit progress event
-            input.onEvent({
-              type: "progress",
-              message: getProgressLabel(targetToolId),
-            });
+        // Also append to in-memory history for synthesis turn
+        chatMessages.push({
+          role: "assistant",
+          content: fullTurnText || null,
+          toolCalls: safeToolCalls,
+        });
 
-            // Execute tool via Tool Router
-            const toolResult = await executeTool({
+        let stopLoop = false;
+
+        for (const tc of safeToolCalls) {
+          // Deduplication check: prevent executing same tool call ID twice
+          if (executedToolCallIds.has(tc.id)) {
+            continue;
+          }
+          executedToolCallIds.add(tc.id);
+
+          input.onEvent({
+            type: "progress",
+            message: getProgressLabel(tc.name),
+          });
+
+          let toolResult: NormalizedToolResult;
+          try {
+            const rawRes = await executeTool({
               authUserId: input.authUserId,
-              toolId: targetToolId,
-              input: targetArgs,
+              toolId: tc.name,
+              input: tc.arguments,
               confirmed: input.message.toLowerCase().includes("confirm") || false,
               conversationId: conv.id,
             });
 
-            // Handle CONNECTION_REQUIRED
-            if (!toolResult.success && toolResult.code === "CONNECTION_REQUIRED") {
-              finalResponseText = `Google Calendar is not connected. Please connect your calendar in Settings to proceed.`;
-              input.onEvent({ type: "token", token: finalResponseText });
-              break;
-            }
+            toolResult = {
+              toolCallId: tc.id,
+              name: tc.name,
+              success: rawRes.success,
+              data: rawRes.data,
+              error: rawRes.message,
+              code: rawRes.code,
+            };
+          } catch (execErr: any) {
+            toolResult = {
+              toolCallId: tc.id,
+              name: tc.name,
+              success: false,
+              error: execErr?.message || "Tool execution failed",
+              code: "TOOL_EXECUTION_ERROR",
+            };
+          }
 
-            // Handle CONFIRMATION_REQUIRED
-            if (!toolResult.success && toolResult.code === "CONFIRMATION_REQUIRED") {
-              const confirmPayload = {
-                type: "confirmation_required",
-                toolId: targetToolId,
-                toolName: TOOLS_REGISTRY[targetToolId]?.name || targetToolId,
-                details: targetArgs,
-              };
-              finalResponseText = `\`\`\`json\n${JSON.stringify(confirmPayload, null, 2)}\n\`\`\``;
-              input.onEvent({ type: "token", token: finalResponseText });
-              break;
-            }
+          const toolMsg = formatToolResultToChatMessage(toolResult);
 
-            // Append tool execution to history for synthesis turn
-            chatMessages.push({ role: "assistant", content: fullTurnText });
-            chatMessages.push({
-              role: "system",
-              content: `Tool Execution Result for ${targetToolId}:\n${JSON.stringify(toolResult, null, 2)}`,
+          // 2. Persist Tool Result message to PostgreSQL
+          await createMessage({
+            conversationId: conv.id,
+            authUserId: input.authUserId,
+            role: "tool",
+            content: toolMsg.content,
+            providerId: conn.provider_id,
+            model: effectiveModel,
+            status: "completed",
+            toolCallId: tc.id,
+            toolName: tc.name,
+          });
+
+          // Append to in-memory history
+          chatMessages.push(toolMsg);
+
+          // Handle CONNECTION_REQUIRED
+          if (!toolResult.success && toolResult.code === "CONNECTION_REQUIRED") {
+            finalResponseText =
+              "Google Calendar is not connected. Please connect your calendar in Settings to proceed.";
+            input.onEvent({ type: "token", token: finalResponseText });
+            stopLoop = true;
+            break;
+          }
+
+          // Handle CONFIRMATION_REQUIRED
+          if (!toolResult.success && toolResult.code === "CONFIRMATION_REQUIRED") {
+            const confirmPayload = {
+              type: "confirmation_required",
+              toolId: tc.name,
+              toolName: TOOLS_REGISTRY[tc.name]?.name || tc.name,
+              details: tc.arguments,
+            };
+            finalResponseText = `\`\`\`json\n${JSON.stringify(confirmPayload, null, 2)}\n\`\`\``;
+            input.onEvent({ type: "token", token: finalResponseText });
+
+            // Persist confirmation state to PostgreSQL conversation record
+            await updateConversation(input.authUserId, conv.id, {
+              status: "waiting_confirmation",
+              pendingConfirmation: confirmPayload,
             });
 
-            continue;
+            stopLoop = true;
+            break;
           }
-        } catch {
-          // If JSON parse failed, fallback to treating output as final text
         }
+
+        if (stopLoop) {
+          break;
+        }
+
+        // Continue agent loop to next turn
+        continue;
       }
 
       finalResponseText = fullTurnText;
       break;
     }
+
 
     // 8. Update assistant message record to 'completed' in PostgreSQL
     await updateMessage(input.authUserId, assistantMsgRecord.id, {

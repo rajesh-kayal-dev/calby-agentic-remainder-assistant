@@ -4,8 +4,19 @@ export type LLMCapability =
   | "streaming"
   | "vision"
   | "tool_calling"
+  | "parallel_tool_calling"
+  | "structured_output"
   | "json_mode"
   | "embeddings";
+
+export interface LLMProviderCapabilities {
+  supportsChat: boolean;
+  supportsStreaming: boolean;
+  supportsToolCalling: boolean;
+  supportsParallelToolCalling: boolean;
+  supportsStructuredOutput: boolean;
+  supportsVision: boolean;
+}
 
 export interface ModelDefinition {
   id: string;
@@ -51,9 +62,50 @@ export interface LLMProviderDefinition {
   advancedFields?: ConfigFieldDefinition[];
 }
 
+export interface NormalizedToolParameter {
+  type: string;
+  description?: string;
+  properties?: Record<string, NormalizedToolParameter>;
+  required?: string[];
+  enum?: string[];
+  items?: NormalizedToolParameter;
+  default?: unknown;
+}
+
+export interface NormalizedToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, NormalizedToolParameter>;
+    required?: string[];
+  };
+}
+
+export interface NormalizedToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  rawArguments?: string;
+}
+
+export interface NormalizedToolResult<T = unknown> {
+  toolCallId: string;
+  name: string;
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+}
+
+export type ChatRole = "system" | "user" | "assistant" | "tool";
+
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+  role: ChatRole;
+  content?: string | null;
+  name?: string;
+  toolCallId?: string;
+  toolCalls?: NormalizedToolCall[];
 }
 
 export interface ChatOptions {
@@ -63,26 +115,35 @@ export interface ChatOptions {
   maxTokens?: number;
   topP?: number;
   stream?: boolean;
+  tools?: NormalizedToolDefinition[];
+  toolChoice?: "auto" | "none" | "required" | { type: "function"; name: string };
 }
 
+export type FinishReason = "stop" | "tool_calls" | "length" | "content_filter" | "error";
+
 export interface NormalizedChatResponse {
-  content: string;
+  content: string | null;
   model: string;
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
   };
-  finishReason?: string;
+  finishReason?: FinishReason | string;
   provider: string;
+  toolCalls?: NormalizedToolCall[];
 }
 
 export type StreamEvent =
   | { type: "token"; content: string }
+  | { type: "tool_call_start"; id: string; name: string; index?: number }
+  | { type: "tool_call_delta"; id: string; argumentsDelta: string; index?: number }
+  | { type: "tool_call_done"; toolCall: NormalizedToolCall }
   | {
       type: "done";
       usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
-      finishReason?: string;
+      finishReason?: FinishReason | string;
+      toolCalls?: NormalizedToolCall[];
     }
   | { type: "error"; error: string; code?: string };
 
@@ -93,6 +154,9 @@ export type LLMErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "INVALID_REQUEST"
   | "TIMEOUT"
+  | "UNSUPPORTED_CAPABILITY"
+  | "MALFORMED_PROVIDER_RESPONSE"
+  | "TOOL_CALL_PARSING_FAILURE"
   | "UNKNOWN_PROVIDER_ERROR";
 
 export class LLMProviderError extends Error {
@@ -105,6 +169,25 @@ export class LLMProviderError extends Error {
     super(message);
     this.name = "LLMProviderError";
   }
+}
+
+export function getDetailedCapabilities(
+  adapterCapabilities: LLMCapability[],
+  modelCapabilities?: LLMCapability[],
+): LLMProviderCapabilities {
+  const caps = new Set<LLMCapability>([
+    ...adapterCapabilities,
+    ...(modelCapabilities || []),
+  ]);
+
+  return {
+    supportsChat: caps.has("chat"),
+    supportsStreaming: caps.has("streaming"),
+    supportsToolCalling: caps.has("tool_calling"),
+    supportsParallelToolCalling: caps.has("parallel_tool_calling"),
+    supportsStructuredOutput: caps.has("structured_output") || caps.has("json_mode"),
+    supportsVision: caps.has("vision"),
+  };
 }
 
 export interface LLMProviderAdapter {
@@ -131,5 +214,7 @@ export interface LLMProviderAdapter {
     baseUrl?: string,
   ): Promise<AsyncIterable<StreamEvent>>;
 
-  getCapabilities(): LLMCapability[];
+  getCapabilities(model?: string): LLMCapability[];
+  getDetailedCapabilities?(model?: string): LLMProviderCapabilities;
 }
+

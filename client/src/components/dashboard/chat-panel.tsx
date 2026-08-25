@@ -2,6 +2,7 @@
 
 import {
   ArrowUp,
+  Bell,
   Bot,
   Calendar,
   LoaderCircle,
@@ -14,6 +15,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -48,6 +50,8 @@ import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "./markdown-message";
 import { CalendarPanel } from "./calendar-panel";
 import { CalendarWorkspace } from "./calendar/calendar-workspace";
+import { RemindersPanel } from "./reminders/reminders-panel";
+import { ContactsPanel } from "./contacts/contacts-panel";
 import { DashboardAmbientBackground } from "./dashboard-ambient-background";
 import { CalbyTooltip } from "../ui/calby-tooltip";
 import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
@@ -211,7 +215,7 @@ type Props = {
   userLabel?: string;
   onLogout?: () => void;
   loggingOut?: boolean;
-  initialView?: "assistant" | "calendar" | "settings";
+  initialView?: "assistant" | "calendar" | "settings" | "reminders" | "contacts";
 };
 
 type Message = {
@@ -569,7 +573,7 @@ function ChatPanel({
   const [progress, setProgress] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings">(initialView);
+  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts">(initialView);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("ai-providers");
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { profile, isLoading: isProfileLoading } = useUserProfile();
@@ -1080,6 +1084,50 @@ function ChatPanel({
               <span>Calendar Workspace</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("reminders");
+                setSidebarOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-150 border",
+                activeView === "reminders"
+                  ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
+                  : "border-transparent text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              )}
+            >
+              <Bell
+                className={cn(
+                  "size-4",
+                  activeView === "reminders" ? "text-lime-400" : "text-zinc-400"
+                )}
+              />
+              <span>Reminders & Tasks</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("contacts");
+                setSidebarOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-150 border",
+                activeView === "contacts"
+                  ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
+                  : "border-transparent text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              )}
+            >
+              <Users
+                className={cn(
+                  "size-4",
+                  activeView === "contacts" ? "text-lime-400" : "text-zinc-400"
+                )}
+              />
+              <span>Contacts Directory</span>
+            </button>
+
             {/* Unified Single Google Calendar Item */}
             <GoogleCalendarNavItem
               sessionToken={sessionToken}
@@ -1295,8 +1343,12 @@ function ChatPanel({
           </div>
         </aside>
 
-        {/* Dynamic View: Calendar Workspace vs AI Assistant View */}
-        {activeView === "calendar" ? (
+        {/* Dynamic View: Reminders vs Contacts vs Calendar Workspace vs AI Assistant View */}
+        {activeView === "reminders" ? (
+          <RemindersPanel sessionToken={sessionToken} />
+        ) : activeView === "contacts" ? (
+          <ContactsPanel sessionToken={sessionToken} />
+        ) : activeView === "calendar" ? (
           <div className="flex min-w-0 flex-1 overflow-hidden">
             <CalendarWorkspace
               sessionToken={sessionToken}

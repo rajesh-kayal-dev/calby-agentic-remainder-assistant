@@ -6,11 +6,26 @@ import {
   StreamEvent,
   LLMCapability,
 } from "../llm-provider.interface.js";
+import {
+  formatGeminiTools,
+  formatGeminiToolConfig,
+  formatGeminiMessages,
+  parseGeminiAssistantMessage,
+  parseGeminiStream,
+} from "../gemini-tool-formatting.js";
 
 export class GeminiAdapter extends BaseLLMAdapter {
   providerId = "google-gemini";
   defaultBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
-  capabilities: LLMCapability[] = ["chat", "streaming", "vision", "tool_calling", "json_mode"];
+  capabilities: LLMCapability[] = [
+    "chat",
+    "streaming",
+    "vision",
+    "tool_calling",
+    "parallel_tool_calling",
+    "structured_output",
+    "json_mode",
+  ];
 
   private getApiKey(credentials: Record<string, string>): string {
     return credentials.apiKey || credentials.api_key || "";
@@ -68,18 +83,15 @@ export class GeminiAdapter extends BaseLLMAdapter {
     const model = options.model.startsWith("models/") ? options.model : `models/${options.model}`;
     const url = `${this.getBaseUrl(baseUrl)}/${model}:generateContent?key=${apiKey}`;
 
-    const systemMsg = options.messages.find((m) => m.role === "system");
-    const contents = options.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+    const { systemInstruction, contents } = formatGeminiMessages(options.messages, options.tools);
+    const tools = formatGeminiTools(options.tools);
+    const toolConfig = formatGeminiToolConfig(options.toolChoice);
 
     const body: Record<string, unknown> = { contents };
-    if (systemMsg) {
-      body.systemInstruction = { parts: [{ text: systemMsg.content }] };
-    }
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+    if (tools) body.tools = tools;
+    if (toolConfig) body.toolConfig = toolConfig;
+
     if (options.temperature !== undefined) {
       body.generationConfig = { temperature: options.temperature };
     }
@@ -96,7 +108,8 @@ export class GeminiAdapter extends BaseLLMAdapter {
     }
 
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const parsedMsg = parseGeminiAssistantMessage(data, options.tools);
+
     const usage = data?.usageMetadata
       ? {
           promptTokens: data.usageMetadata.promptTokenCount,
@@ -106,11 +119,12 @@ export class GeminiAdapter extends BaseLLMAdapter {
       : undefined;
 
     return {
-      content: text,
+      content: parsedMsg.content,
       model: options.model,
       usage,
-      finishReason: data?.candidates?.[0]?.finishReason || "STOP",
+      finishReason: parsedMsg.finishReason,
       provider: "google-gemini",
+      toolCalls: parsedMsg.toolCalls,
     };
   }
 
@@ -123,17 +137,17 @@ export class GeminiAdapter extends BaseLLMAdapter {
     const model = options.model.startsWith("models/") ? options.model : `models/${options.model}`;
     const url = `${this.getBaseUrl(baseUrl)}/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
 
-    const systemMsg = options.messages.find((m) => m.role === "system");
-    const contents = options.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+    const { systemInstruction, contents } = formatGeminiMessages(options.messages, options.tools);
+    const tools = formatGeminiTools(options.tools);
+    const toolConfig = formatGeminiToolConfig(options.toolChoice);
 
     const body: Record<string, unknown> = { contents };
-    if (systemMsg) {
-      body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+    if (tools) body.tools = tools;
+    if (toolConfig) body.toolConfig = toolConfig;
+
+    if (options.temperature !== undefined) {
+      body.generationConfig = { temperature: options.temperature };
     }
 
     const res = await this.fetchWithTimeout(url, {
@@ -151,38 +165,7 @@ export class GeminiAdapter extends BaseLLMAdapter {
       throw new Error("Response body is empty");
     }
 
-    async function* parseGeminiStream(
-      bodyStream: ReadableStream<Uint8Array>,
-    ): AsyncIterable<StreamEvent> {
-      const reader = bodyStream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("data: ")) {
-            try {
-              const parsed = JSON.parse(trimmed.slice(6));
-              const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) {
-                yield { type: "token", content: text };
-              }
-            } catch {
-              // Ignore partial json parse errors
-            }
-          }
-        }
-      }
-      yield { type: "done" };
-    }
-
-    return parseGeminiStream(res.body);
+    return parseGeminiStream(res.body, options.tools);
   }
 }
+

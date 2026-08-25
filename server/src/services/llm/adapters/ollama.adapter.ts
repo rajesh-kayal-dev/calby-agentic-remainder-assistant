@@ -6,11 +6,18 @@ import {
   StreamEvent,
   LLMCapability,
 } from "../llm-provider.interface.js";
+import {
+  formatOpenAITools,
+  formatOpenAIMessages,
+  formatOpenAIToolChoice,
+  parseOpenAIAssistantMessage,
+  parseOpenAIStream,
+} from "../openai-tool-formatting.js";
 
 export class OllamaAdapter extends BaseLLMAdapter {
   providerId = "ollama";
   defaultBaseUrl = "http://localhost:11434/v1";
-  capabilities: LLMCapability[] = ["chat", "streaming", "tool_calling"];
+  capabilities: LLMCapability[] = ["chat", "streaming", "tool_calling", "parallel_tool_calling"];
 
   private getNativeBaseUrl(overrideUrl?: string): string {
     const base = this.getBaseUrl(overrideUrl);
@@ -68,12 +75,18 @@ export class OllamaAdapter extends BaseLLMAdapter {
     baseUrl?: string,
   ): Promise<NormalizedChatResponse> {
     const url = `${this.getBaseUrl(baseUrl)}/chat/completions`;
-    const body = {
+    const tools = formatOpenAITools(options.tools);
+    const toolChoice = formatOpenAIToolChoice(options.toolChoice);
+
+    const body: Record<string, unknown> = {
       model: options.model,
-      messages: options.messages,
+      messages: formatOpenAIMessages(options.messages),
       temperature: options.temperature ?? 0.7,
       stream: false,
     };
+
+    if (tools) body.tools = tools;
+    if (toolChoice) body.tool_choice = toolChoice;
 
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -87,8 +100,11 @@ export class OllamaAdapter extends BaseLLMAdapter {
     }
 
     const data = await res.json();
+    const choice = data?.choices?.[0];
+    const parsedMsg = parseOpenAIAssistantMessage(choice?.message);
+
     return {
-      content: data?.choices?.[0]?.message?.content || "",
+      content: parsedMsg.content,
       model: data.model || options.model,
       usage: data.usage
         ? {
@@ -97,8 +113,9 @@ export class OllamaAdapter extends BaseLLMAdapter {
             totalTokens: data.usage.total_tokens,
           }
         : undefined,
-      finishReason: data?.choices?.[0]?.finish_reason || "stop",
+      finishReason: choice?.finish_reason || (parsedMsg.toolCalls ? "tool_calls" : "stop"),
       provider: "ollama",
+      toolCalls: parsedMsg.toolCalls,
     };
   }
 
@@ -108,12 +125,18 @@ export class OllamaAdapter extends BaseLLMAdapter {
     baseUrl?: string,
   ): Promise<AsyncIterable<StreamEvent>> {
     const url = `${this.getBaseUrl(baseUrl)}/chat/completions`;
-    const body = {
+    const tools = formatOpenAITools(options.tools);
+    const toolChoice = formatOpenAIToolChoice(options.toolChoice);
+
+    const body: Record<string, unknown> = {
       model: options.model,
-      messages: options.messages,
+      messages: formatOpenAIMessages(options.messages),
       temperature: options.temperature ?? 0.7,
       stream: true,
     };
+
+    if (tools) body.tools = tools;
+    if (toolChoice) body.tool_choice = toolChoice;
 
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -130,41 +153,7 @@ export class OllamaAdapter extends BaseLLMAdapter {
       throw new Error("Response body is empty");
     }
 
-    async function* parseOllamaStream(
-      bodyStream: ReadableStream<Uint8Array>,
-    ): AsyncIterable<StreamEvent> {
-      const reader = bodyStream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("data: ")) {
-            const dataStr = trimmed.slice(6);
-            if (dataStr === "[DONE]") {
-              yield { type: "done" };
-              return;
-            }
-            try {
-              const parsed = JSON.parse(dataStr);
-              const delta = parsed?.choices?.[0]?.delta?.content;
-              if (delta) yield { type: "token", content: delta };
-            } catch {
-              // Ignore partial json parse
-            }
-          }
-        }
-      }
-      yield { type: "done" };
-    }
-
-    return parseOllamaStream(res.body);
+    return parseOpenAIStream(res.body, this.providerId);
   }
 }
+

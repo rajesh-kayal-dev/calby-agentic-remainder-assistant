@@ -7,6 +7,8 @@ import {
   LLMCapability,
   LLMErrorCode,
   LLMProviderError,
+  LLMProviderCapabilities,
+  getDetailedCapabilities,
 } from "../llm-provider.interface.js";
 
 export abstract class BaseLLMAdapter implements LLMProviderAdapter {
@@ -92,7 +94,12 @@ export abstract class BaseLLMAdapter implements LLMProviderAdapter {
     baseUrl?: string,
   ): Promise<AsyncIterable<StreamEvent>>;
 
-  getCapabilities(): LLMCapability[] {
+  getCapabilities(_model?: string): LLMCapability[] {
     return this.capabilities;
   }
+
+  getDetailedCapabilities(model?: string): LLMProviderCapabilities {
+    return getDetailedCapabilities(this.getCapabilities(model));
+  }
 }
+

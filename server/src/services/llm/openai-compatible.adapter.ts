@@ -5,13 +5,27 @@ import {
   LLMCapability,
   NormalizedChatResponse,
   StreamEvent,
+  LLMProviderCapabilities,
+  getDetailedCapabilities,
 } from "./llm-provider.interface.js";
+import {
+  formatOpenAITools,
+  formatOpenAIMessages,
+  formatOpenAIToolChoice,
+  parseOpenAIAssistantMessage,
+  parseOpenAIStream,
+} from "./openai-tool-formatting.js";
 
 export class OpenAICompatibleAdapter implements LLMProviderAdapter {
   constructor(
     public providerId: string,
     private defaultBaseUrl: string,
-    private capabilities: LLMCapability[] = ["chat", "streaming", "tool_calling"],
+    private capabilities: LLMCapability[] = [
+      "chat",
+      "streaming",
+      "tool_calling",
+      "parallel_tool_calling",
+    ],
   ) {}
 
   private getBaseUrl(overrideUrl?: string): string {
@@ -90,14 +104,20 @@ export class OpenAICompatibleAdapter implements LLMProviderAdapter {
     baseUrl?: string,
   ): Promise<NormalizedChatResponse> {
     const url = `${this.getBaseUrl(baseUrl)}/chat/completions`;
-    const body = {
+    const tools = formatOpenAITools(options.tools);
+    const toolChoice = formatOpenAIToolChoice(options.toolChoice);
+
+    const body: Record<string, unknown> = {
       model: options.model,
-      messages: options.messages,
+      messages: formatOpenAIMessages(options.messages),
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
       top_p: options.topP,
       stream: false,
     };
+
+    if (tools) body.tools = tools;
+    if (toolChoice) body.tool_choice = toolChoice;
 
     const res = await fetch(url, {
       method: "POST",
@@ -112,21 +132,22 @@ export class OpenAICompatibleAdapter implements LLMProviderAdapter {
     }
 
     const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content || "";
-    const usage = data?.usage
-      ? {
-          promptTokens: data.usage.prompt_tokens,
-          completionTokens: data.usage.completion_tokens,
-          totalTokens: data.usage.total_tokens,
-        }
-      : undefined;
+    const choice = data?.choices?.[0];
+    const parsedMsg = parseOpenAIAssistantMessage(choice?.message);
 
     return {
-      content,
+      content: parsedMsg.content,
       model: data.model || options.model,
-      usage,
-      finishReason: data?.choices?.[0]?.finish_reason || "stop",
+      usage: data.usage
+        ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
+          }
+        : undefined,
+      finishReason: choice?.finish_reason || (parsedMsg.toolCalls ? "tool_calls" : "stop"),
       provider: this.providerId,
+      toolCalls: parsedMsg.toolCalls,
     };
   }
 
@@ -136,13 +157,19 @@ export class OpenAICompatibleAdapter implements LLMProviderAdapter {
     baseUrl?: string,
   ): Promise<AsyncIterable<StreamEvent>> {
     const url = `${this.getBaseUrl(baseUrl)}/chat/completions`;
-    const body = {
+    const tools = formatOpenAITools(options.tools);
+    const toolChoice = formatOpenAIToolChoice(options.toolChoice);
+
+    const body: Record<string, unknown> = {
       model: options.model,
-      messages: options.messages,
+      messages: formatOpenAIMessages(options.messages),
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
       stream: true,
     };
+
+    if (tools) body.tools = tools;
+    if (toolChoice) body.tool_choice = toolChoice;
 
     const res = await fetch(url, {
       method: "POST",
@@ -158,43 +185,16 @@ export class OpenAICompatibleAdapter implements LLMProviderAdapter {
       throw new Error("Response body is empty");
     }
 
-    async function* parseStream(bodyStream: ReadableStream<Uint8Array>): AsyncIterable<StreamEvent> {
-      const reader = bodyStream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("data: ")) {
-            const dataStr = trimmed.slice(6);
-            if (dataStr === "[DONE]") {
-              yield { type: "done" };
-              return;
-            }
-            try {
-              const parsed = JSON.parse(dataStr);
-              const delta = parsed?.choices?.[0]?.delta?.content;
-              if (delta) yield { type: "token", content: delta };
-            } catch {
-              // Ignore line parse errors
-            }
-          }
-        }
-      }
-      yield { type: "done" };
-    }
-
-    return parseStream(res.body);
+    return parseOpenAIStream(res.body, this.providerId);
   }
 
-  getCapabilities(): LLMCapability[] {
+  getCapabilities(_model?: string): LLMCapability[] {
     return this.capabilities;
   }
+
+  getDetailedCapabilities(model?: string): LLMProviderCapabilities {
+    return getDetailedCapabilities(this.getCapabilities(model));
+  }
 }
+
+

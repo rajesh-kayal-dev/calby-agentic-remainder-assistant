@@ -6,11 +6,23 @@ import {
   StreamEvent,
   LLMCapability,
 } from "../llm-provider.interface.js";
+import {
+  formatAnthropicTools,
+  formatAnthropicMessages,
+  parseAnthropicAssistantMessage,
+  parseAnthropicStream,
+} from "../anthropic-tool-formatting.js";
 
 export class AnthropicAdapter extends BaseLLMAdapter {
   providerId = "anthropic";
   defaultBaseUrl = "https://api.anthropic.com/v1";
-  capabilities: LLMCapability[] = ["chat", "streaming", "vision", "tool_calling"];
+  capabilities: LLMCapability[] = [
+    "chat",
+    "streaming",
+    "vision",
+    "tool_calling",
+    "parallel_tool_calling",
+  ];
 
   private getHeaders(credentials: Record<string, string>): Record<string, string> {
     const apiKey = credentials.apiKey || credentials.api_key || "";
@@ -65,22 +77,19 @@ export class AnthropicAdapter extends BaseLLMAdapter {
     baseUrl?: string,
   ): Promise<NormalizedChatResponse> {
     const url = `${this.getBaseUrl(baseUrl)}/messages`;
-    const systemMsg = options.messages.find((m) => m.role === "system");
-    const userMessages = options.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+    const { systemPrompt, messages } = formatAnthropicMessages(options.messages, options.tools);
+    const tools = formatAnthropicTools(options.tools);
 
     const body: Record<string, unknown> = {
       model: options.model,
-      messages: userMessages,
+      messages,
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature,
       stream: false,
     };
-    if (systemMsg) body.system = systemMsg.content;
+
+    if (systemPrompt) body.system = systemPrompt;
+    if (tools) body.tools = tools;
 
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -94,7 +103,8 @@ export class AnthropicAdapter extends BaseLLMAdapter {
     }
 
     const data = await res.json();
-    const content = data?.content?.[0]?.text || "";
+    const parsedMsg = parseAnthropicAssistantMessage(data, options.tools);
+
     const usage = data?.usage
       ? {
           promptTokens: data.usage.input_tokens,
@@ -104,11 +114,12 @@ export class AnthropicAdapter extends BaseLLMAdapter {
       : undefined;
 
     return {
-      content,
+      content: parsedMsg.content,
       model: data.model || options.model,
       usage,
-      finishReason: data.stop_reason || "end_turn",
+      finishReason: parsedMsg.finishReason,
       provider: "anthropic",
+      toolCalls: parsedMsg.toolCalls,
     };
   }
 
@@ -118,22 +129,19 @@ export class AnthropicAdapter extends BaseLLMAdapter {
     baseUrl?: string,
   ): Promise<AsyncIterable<StreamEvent>> {
     const url = `${this.getBaseUrl(baseUrl)}/messages`;
-    const systemMsg = options.messages.find((m) => m.role === "system");
-    const userMessages = options.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+    const { systemPrompt, messages } = formatAnthropicMessages(options.messages, options.tools);
+    const tools = formatAnthropicTools(options.tools);
 
     const body: Record<string, unknown> = {
       model: options.model,
-      messages: userMessages,
+      messages,
       max_tokens: options.maxTokens || 1024,
       temperature: options.temperature,
       stream: true,
     };
-    if (systemMsg) body.system = systemMsg.content;
+
+    if (systemPrompt) body.system = systemPrompt;
+    if (tools) body.tools = tools;
 
     const res = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -150,40 +158,7 @@ export class AnthropicAdapter extends BaseLLMAdapter {
       throw new Error("Response body is empty");
     }
 
-    async function* parseAnthropicStream(
-      bodyStream: ReadableStream<Uint8Array>,
-    ): AsyncIterable<StreamEvent> {
-      const reader = bodyStream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("data: ")) {
-            try {
-              const parsed = JSON.parse(trimmed.slice(6));
-              if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                yield { type: "token", content: parsed.delta.text };
-              } else if (parsed.type === "message_stop") {
-                yield { type: "done" };
-                return;
-              }
-            } catch {
-              // Ignore partial json parse errors
-            }
-          }
-        }
-      }
-      yield { type: "done" };
-    }
-
-    return parseAnthropicStream(res.body);
+    return parseAnthropicStream(res.body, options.tools);
   }
 }
+

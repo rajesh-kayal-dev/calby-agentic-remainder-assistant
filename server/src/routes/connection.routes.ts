@@ -5,57 +5,274 @@ import {
   getCalendarConnection,
   refreshCalendarConnection,
 } from "../services/connection.service.js";
+import {
+  createTelegramConnectionToken,
+  getUserTelegramConnection,
+  disconnectUserTelegram,
+  processTelegramWebhookStart,
+} from "../services/notifications/telegram-connection.service.js";
+import {
+  saveWhatsAppConfiguration,
+  getWhatsAppConnectionStatus,
+  disconnectWhatsApp,
+} from "../services/notifications/whatsapp-connection.service.js";
+import { getPool } from "../db/pool.js";
 
 export const connectionRouter = Router();
 
+// Public Webhook Endpoint for Telegram Bot Updates (No session token required)
+connectionRouter.post("/telegram/webhook", async (req, res) => {
+  try {
+    const text = req.body?.message?.text || "";
+    const chatId = req.body?.message?.chat?.id ? String(req.body.message.chat.id) : null;
+    const username = req.body?.message?.from?.username || null;
+
+    if (text && chatId && text.startsWith("/start ")) {
+      const startToken = text.substring(7).trim();
+      if (startToken) {
+        await processTelegramWebhookStart({
+          chatId,
+          startToken,
+          username,
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Telegram webhook error:", error);
+    res.json({ ok: true });
+  }
+});
+
+// Public Webhook Verification Endpoint for WhatsApp Business API (GET Challenge)
+connectionRouter.get("/whatsapp/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "calby-whatsapp-verify-token";
+
+  if (mode === "subscribe" && token === expectedToken && challenge) {
+    res.status(200).send(challenge);
+    return;
+  }
+
+  res.status(403).send("Forbidden");
+});
+
+// Public Webhook Status Update Endpoint for WhatsApp Business API (POST Statuses)
+connectionRouter.post("/whatsapp/webhook", async (req, res) => {
+  try {
+    const entry = req.body?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+    const statusObj = value?.statuses?.[0];
+
+    if (statusObj && statusObj.id && statusObj.status) {
+      const messageId = statusObj.id;
+      const status = String(statusObj.status).toLowerCase();
+
+      let deliveryStatus = "sent";
+      if (status === "delivered") deliveryStatus = "delivered";
+      if (status === "read") deliveryStatus = "read";
+      if (status === "failed") deliveryStatus = "failed";
+
+      await getPool().query(
+        `
+        UPDATE notification_deliveries
+        SET
+          whatsapp_status = $1,
+          status = CASE WHEN $1 = 'failed' THEN 'failed' ELSE status END
+        WHERE provider_message_id = $2
+        `,
+        [deliveryStatus, messageId],
+      );
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("WhatsApp webhook error:", error);
+    res.status(200).json({ ok: true }); // Always return 200 to Meta
+  }
+});
+
+// Session Protected Routes
 connectionRouter.use(requireSession);
 
 connectionRouter.get("/", async (req, res) => {
   try {
-    const connection = await getCalendarConnection(req.authContext!.userId);
-    res.json({ connection });
+    const googleStatus = await getGoogleConnectionStatus(req.authContext!.authUserId);
+    res.json({
+      connection: {
+        label: "Google Calendar & Gmail",
+        status: googleStatus.connected ? "connected" : "disconnected",
+        email: googleStatus.email,
+        requiresUpgrade: googleStatus.requiresUpgrade,
+      },
+    });
   } catch {
-    res.status(500).json({ error: "Could not load connections" });
+    res.status(500).json({ error: "Could not load connection status" });
   }
 });
 
 connectionRouter.post("/connect", async (req, res) => {
   try {
-    const refreshToken =
-      typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
-
-    if (!refreshToken) {
-      res.status(400).json({ error: "Refresh token required" });
-      return;
-    }
-
-    const redirectUrl =
-      typeof req.body?.redirectUrl === "string"
-        ? req.body.redirectUrl
-        : `${process.env.APP_URL ?? "http://localhost:3000"}/dashboard`;
-
-    const result = await createCalendarConnectUrl({
-      userId: req.authContext!.userId,
-      refreshToken,
-      redirectUrl,
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    const redirectUri = `${appUrl}/api/connections/google/callback`;
+    const url = getGoogleOAuthAuthUrl({
+      authUserId: req.authContext!.authUserId,
+      redirectUri,
     });
-
-    res.json(result);
+    res.json({ url });
   } catch {
-    res.status(500).json({ error: "Could not start connection" });
+    res.status(500).json({ error: "Could not start Google OAuth connection" });
   }
 });
 
 connectionRouter.post("/refresh-status", async (req, res) => {
   try {
-    const connection = await refreshCalendarConnection({
-      userId: req.authContext!.userId,
+    const googleStatus = await getGoogleConnectionStatus(req.authContext!.authUserId);
+    res.json({
+      connection: {
+        label: "Google Calendar & Gmail",
+        status: googleStatus.connected ? "connected" : "disconnected",
+        email: googleStatus.email,
+        requiresUpgrade: googleStatus.requiresUpgrade,
+      },
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to refresh connection status" });
+  }
+});
+
+connectionRouter.post("/telegram/intent", async (req, res) => {
+  try {
+    const result = await createTelegramConnectionToken(req.authContext!.authUserId);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to generate Telegram connection intent" });
+  }
+});
+
+connectionRouter.get("/telegram/status", async (req, res) => {
+  try {
+    const status = await getUserTelegramConnection(req.authContext!.authUserId);
+    res.json({ connection: status });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to get Telegram connection status" });
+  }
+});
+
+connectionRouter.post("/telegram/disconnect", async (req, res) => {
+  try {
+    const success = await disconnectUserTelegram(req.authContext!.authUserId);
+    res.json({ success });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to disconnect Telegram" });
+  }
+});
+
+connectionRouter.post("/whatsapp/configure", async (req, res) => {
+  try {
+    const phoneNumberId = typeof req.body?.phoneNumberId === "string" ? req.body.phoneNumberId : "";
+    const accessToken = typeof req.body?.accessToken === "string" ? req.body.accessToken : "";
+    const businessAccountId =
+      typeof req.body?.businessAccountId === "string" ? req.body.businessAccountId : undefined;
+    const displayPhoneNumber =
+      typeof req.body?.displayPhoneNumber === "string" ? req.body.displayPhoneNumber : undefined;
+
+    if (!phoneNumberId || !accessToken) {
+      res.status(400).json({ error: "Phone Number ID and Permanent Access Token are required" });
+      return;
+    }
+
+    const status = await saveWhatsAppConfiguration({
       authUserId: req.authContext!.authUserId,
+      phoneNumberId,
+      accessToken,
+      businessAccountId,
+      displayPhoneNumber,
     });
 
-    res.json({ connection });
-  } catch {
-    res.status(500).json({ error: "Failed to refresh the status" });
+    res.json({ success: true, connection: status });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || "Failed to configure WhatsApp Business" });
+  }
+});
+
+connectionRouter.get("/whatsapp/status", async (req, res) => {
+  try {
+    const status = await getWhatsAppConnectionStatus(req.authContext!.authUserId);
+    res.json({ connection: status });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to get WhatsApp connection status" });
+  }
+});
+
+import {
+  getGoogleOAuthAuthUrl,
+  exchangeOAuthCodeAndSave,
+  getGoogleConnectionStatus,
+  disconnectGoogleOAuth,
+  validateGoogleOAuthState,
+} from "../services/google-oauth.service.js";
+
+connectionRouter.get("/google/auth-url", async (req, res) => {
+  try {
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    const redirectUri = `${appUrl}/api/connections/google/callback`;
+    const url = getGoogleOAuthAuthUrl({
+      authUserId: req.authContext!.authUserId,
+      redirectUri,
+    });
+    res.json({ url });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to generate Google OAuth URL" });
+  }
+});
+
+connectionRouter.get("/google/callback", async (req, res) => {
+  try {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+
+    const stateValidation = validateGoogleOAuthState(state, req.authContext!.authUserId);
+    if (!stateValidation.valid || !stateValidation.authUserId) {
+      res.status(400).send("Invalid or expired OAuth state parameter");
+      return;
+    }
+
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    const redirectUri = `${appUrl}/api/connections/google/callback`;
+
+    await exchangeOAuthCodeAndSave({
+      authUserId: stateValidation.authUserId,
+      code,
+      redirectUri,
+    });
+
+    res.redirect(`${appUrl}/dashboard?tab=settings`);
+  } catch (error: any) {
+    res.status(500).send(`Google OAuth authorization failed: ${error?.message || "Unknown error"}`);
+  }
+});
+
+connectionRouter.get("/gmail/status", async (req, res) => {
+  try {
+    const status = await getGoogleConnectionStatus(req.authContext!.authUserId);
+    res.json({ connection: status });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to get Gmail connection status" });
+  }
+});
+
+connectionRouter.delete("/gmail/disconnect", async (req, res) => {
+  try {
+    const success = await disconnectGoogleOAuth(req.authContext!.authUserId);
+    res.json({ success });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to disconnect Gmail" });
   }
 });
 
