@@ -64,7 +64,6 @@ export function AIComposer({
   };
 
   const handleToggleSelectTool = (tool: ToolDefinition) => {
-    console.log("Tool selected:", tool);
     const previousTool = selectedTools[selectedTools.length - 1];
 
     if (selectedTools.some((t) => t.id === tool.id)) {
@@ -76,7 +75,6 @@ export function AIComposer({
     } else {
       // Attach tool chip and compute intelligent prompt
       const newPrompt = buildToolPrompt(prompt, tool, previousTool);
-      console.log("Composer prompt:", newPrompt);
       setSelectedTools([tool]);
       setPrompt(newPrompt);
       focusAndMoveCursorToEnd(newPrompt.length);
@@ -128,15 +126,6 @@ export function AIComposer({
         setPrompt(finalPrompt);
       }
     }
-
-    const activeToolObj = selectedTools[0]
-      ? { id: selectedTools[0].id, category: selectedTools[0].category, name: selectedTools[0].name }
-      : undefined;
-
-    console.log("Sending:", {
-      message: finalPrompt,
-      selectedTool: activeToolObj,
-    });
 
     onSubmit(e);
   };

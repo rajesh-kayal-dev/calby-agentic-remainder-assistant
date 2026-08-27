@@ -169,7 +169,7 @@ export function ConnectorsTab({
     try {
       await connectCalendar(sessionToken);
     } catch {
-      console.error("Connect failed");
+      // Connect error handled gracefully
     } finally {
       setBusy(false);
     }
@@ -183,7 +183,7 @@ export function ConnectorsTab({
       setSyncFeedback("Google Calendar synchronized successfully.");
       setTimeout(() => setSyncFeedback(""), 3000);
     } catch {
-      console.error("Sync failed");
+      // Refresh error handled gracefully
     } finally {
       setBusy(false);
     }
@@ -195,7 +195,7 @@ export function ConnectorsTab({
       setTgIntent(res);
       setTgModalOpen(true);
     } catch {
-      console.error("Failed to start Telegram connection");
+      // Start telegram connection failure handled
     }
   };
 
@@ -204,7 +204,7 @@ export function ConnectorsTab({
       await disconnectTelegramApi(sessionToken);
       await loadTgStatus();
     } catch {
-      console.error("Failed to disconnect Telegram");
+      // Disconnect error handled
     }
   };
 
@@ -239,7 +239,7 @@ export function ConnectorsTab({
       await disconnectWhatsAppApi(sessionToken);
       await loadWaStatus();
     } catch {
-      console.error("Failed to disconnect WhatsApp");
+      // Disconnect error handled
     }
   };
 

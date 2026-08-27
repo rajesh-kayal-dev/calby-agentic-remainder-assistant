@@ -71,6 +71,7 @@ import { AIComposer } from "./composer/ai-composer";
 import { useUserProfile } from "@/context/user-profile-context";
 import { useLLM } from "@/context/llm-context";
 import { ConnectionInfo } from "@/lib/types";
+import { PWAInstallButton } from "@/components/pwa/PWAInstallButton";
 
 const styles = {
   shell:
@@ -1394,6 +1395,7 @@ function ChatPanel({
 
           {/* User Account Profile Footer */}
           <div className={styles.sidebarFooter}>
+            <PWAInstallButton variant="sidebar" className="mb-2.5" />
             <AccountPopover
               userLabel={currentDisplayUser}
               onOpenProfile={() => setProfileModalOpen(true)}

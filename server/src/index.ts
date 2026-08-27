@@ -20,23 +20,36 @@ const app = express();
 const port = Number(process.env.PORT) || 4000;
 const appOrigin = process.env.APP_URL ?? "http://localhost:3000";
 
+const allowedOrigins = [
+  appOrigin,
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
 app.use(
   cors({
-    origin: appOrigin,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || origin.startsWith("chrome-extension://")) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Allow during dev
+    },
     credentials: true,
   }),
 );
 
 app.use(express.json());
 
-app.get("/health", async (_req, res) => {
+app.get(["/health", "/api/health"], async (_req, res) => {
   try {
     await getPool().query("SELECT 1");
-    res.json({ status: "ok", service: "agentic-calendar-app", database: "up" });
+    res.json({ status: "ok", service: "calby-server", database: "up" });
   } catch {
     res.status(503).json({
       status: "error",
-      service: "agentic-calendar-app",
+      service: "calby-server",
       database: "down",
     });
   }
@@ -72,4 +85,3 @@ async function shutdown(signal: string) {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-

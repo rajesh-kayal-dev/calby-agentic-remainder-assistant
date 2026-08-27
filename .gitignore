@@ -49,3 +49,8 @@ Thumbs.db
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# Standalone Extension Repo & Release Assets
+extension/
+calby-extension-v1.0.0.zip
+

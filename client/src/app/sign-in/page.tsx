@@ -36,7 +36,7 @@ function SignInPage() {
             />
           </Link>
           <p className="text-sm font-light text-zinc-400 mt-1">
-            Your calendar, on autopilot.
+            Your conversational personal assistant.
           </p>
         </div>
 

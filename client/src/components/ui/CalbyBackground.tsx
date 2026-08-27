@@ -14,10 +14,14 @@ declare global {
 
 export function CalbyBackground() {
   useEffect(() => {
-    // Dynamically load and initialize UnicornStudio script
+    // Dynamically load and initialize UnicornStudio script with error handling
     const loadAndInitUnicorn = () => {
       if (window.UnicornStudio) {
-        window.UnicornStudio.init();
+        try {
+          window.UnicornStudio.init();
+        } catch (e) {
+          console.warn("UnicornStudio init deferred:", e);
+        }
         return;
       }
 
@@ -30,16 +34,27 @@ export function CalbyBackground() {
         script.async = true;
         script.onload = () => {
           if (window.UnicornStudio) {
-            window.UnicornStudio.init();
+            try {
+              window.UnicornStudio.init();
+            } catch (e) {
+              console.warn("UnicornStudio init deferred:", e);
+            }
           }
+        };
+        script.onerror = () => {
+          console.warn("UnicornStudio script failed to load from CDN. Using static fallback background.");
         };
         document.body.appendChild(script);
       } else {
-        // If script tag already exists in head/body, wait for window.UnicornStudio
+        // If script tag already exists in head/body, wait safely for window.UnicornStudio
         const checkInterval = setInterval(() => {
           if (window.UnicornStudio) {
             clearInterval(checkInterval);
-            window.UnicornStudio.init();
+            try {
+              window.UnicornStudio.init();
+            } catch (e) {
+              console.warn("UnicornStudio init deferred:", e);
+            }
           }
         }, 100);
         setTimeout(() => clearInterval(checkInterval), 3000);

@@ -9,9 +9,22 @@
   min-height: 320px;
 }
 
-.descope-wrap descope-wc {
-  --descope-primary-color: #a3e635;
+:root, .descope-wrap, .descope-wrap descope-wc {
+  --descope-primary-color: #84cc16;
+  --descope-primary-color-hover: #a3e635;
   --descope-primary-text-color: #09090b;
+  --descope-button-primary-bg-color: #84cc16;
+  --descope-button-primary-background-color: #84cc16;
+  --descope-button-primary-background: #84cc16;
+  --descope-button-primary-text-color: #09090b;
+  --descope-button-primary-border-color: #84cc16;
+  --descope-button-primary-hover-background-color: #a3e635;
+  --descope-link-color: #1a73e8;
+  --descope-link-text-color: #1a73e8;
+  --descope-text-link-color: #1a73e8;
+  --descope-focus-border-color: #84cc16;
+  --descope-input-focus-border-color: #84cc16;
+  --descope-color-primary: #84cc16;
 }
 
 @theme inline {
@@ -247,6 +260,45 @@
 
 .animate-float-reverse-card:hover {
   animation-play-state: paused;
+}
+
+@keyframes float-orbit-1 {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.05);
+  }
+}
+
+@keyframes float-orbit-2 {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(6px) scale(1.04);
+  }
+}
+
+@keyframes float-orbit-3 {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.05);
+  }
+}
+
+.animate-orbit-1 {
+  animation: float-orbit-1 4.5s ease-in-out infinite;
+}
+
+.animate-orbit-2 {
+  animation: float-orbit-2 5.2s ease-in-out infinite;
+}
+
+.animate-orbit-3 {
+  animation: float-orbit-3 4.8s ease-in-out infinite;
 }
 
 @keyframes ticker {

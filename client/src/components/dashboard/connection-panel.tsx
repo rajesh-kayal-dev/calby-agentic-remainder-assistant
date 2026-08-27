@@ -51,7 +51,7 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
     try {
       setConnection(await fetchCalendarConnection(sessionToken));
     } catch {
-      console.log("failed to load calendar connection");
+      // Gracefully maintain disconnected fallback state
     } finally {
       setLoading(false);
     }
@@ -66,7 +66,9 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
     try {
       await connectCalendar(sessionToken);
     } catch {
-      console.log("failed to connect");
+      // Handle connection error gracefully
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -77,7 +79,7 @@ function ConnectionsPanel({ sessionToken }: { sessionToken: string }) {
       await refreshCalendarConnection(sessionToken);
       await handleLoadCalendarConnection();
     } catch {
-      console.log("failed to refresh");
+      // Handle refresh error gracefully
     } finally {
       setBusy(false);
     }

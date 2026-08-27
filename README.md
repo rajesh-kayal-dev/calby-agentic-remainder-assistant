@@ -1,23 +1,18 @@
 # Calby
 
-AI-powered calendar assistant for scheduling, rescheduling, meeting management, and intelligent calendar workflows.
+**Calby** is an intelligent, multi-provider AI personal assistant and productivity suite. It unifies schedule management, task tracking, smart obligations, financial ledgers, and multi-channel communication (Email, Gmail, Telegram, WhatsApp) into a seamless conversational workspace.
 
 ---
 
-## Overview
+## Key Capabilities
 
-Calby is an intelligent calendar management assistant that connects to your calendar and leverages agentic AI to help you manage your schedule seamlessly. With natural language interaction, Calby can view, schedule, update, delete, and find optimal meeting slots across your connected calendars.
-
----
-
-## Features
-
-- **Natural Language Calendar Assistant**: Chat with an AI agent capable of managing events, resolving scheduling conflicts, and finding free slots.
-- **Google Calendar Integration**: Secure connection and synchronization with Google Calendar via Descope OAuth.
-- **Interactive Calendar Workspace**: Full calendar views (week view, mini-calendar, event details, and connection status) alongside the chat interface.
-- **Persistent AI Memory**: Threaded conversations and agent memory powered by Mastra LibSQL storage.
-- **Secure Authentication**: User management and authentication powered by Descope (Next.js SDK & Node.js SDK).
-- **PostgreSQL Data Persistence**: User accounts, connections, and metadata stored in PostgreSQL (Neon or Docker-hosted).
+- **Intelligent Calendar Management**: View, schedule, update, delete, and find collision-free meeting slots across Google Calendar with natural language interaction and confirmation guards.
+- **Multi-Provider LLM Engine**: Seamlessly switch between **12 LLM providers** (OpenAI, Google Gemini, Anthropic, DeepSeek, Groq, Mistral, Ollama, OpenRouter, Perplexity, MiniMax, xAI Grok, ZAI) with per-user AES-256-GCM encrypted API key storage.
+- **Task & Task List Management**: Nested subtasks, priority levels, status tracking, recurring schedules, and auto-linked reminders.
+- **Money & Debts Ledger**: Multi-currency ledger tracking debts, loans, partial payments, and net contact balances with concurrency row locks.
+- **Multi-Channel Notifications**: Real-time reminders and scheduled digests dispatched across In-App, Email (SMTP), Gmail (OAuth), Telegram, and WhatsApp Cloud API via BullMQ with automatic in-memory fallback.
+- **Executive Summaries & Reports**: On-demand and scheduled daily/weekly/monthly reports with automated export to Google Docs and Google Sheets.
+- **Strict Tenant Isolation**: Zero cross-tenant data leakage; all tools, queries, and repositories strictly enforce authenticated session boundaries.
 
 ---
 
@@ -25,20 +20,16 @@ Calby is an intelligent calendar management assistant that connects to your cale
 
 ### Frontend (`client/`)
 - **Framework**: Next.js 16 (App Router), React 19, TypeScript
-- **Styling**: Tailwind CSS v4, Lucide React icons, Base UI
+- **Styling**: Tailwind CSS v4, Lucide React, Base UI
 - **Authentication**: `@descope/nextjs-sdk`
-- **Markdown Rendering**: `react-markdown`, `remark-gfm`
+- **Markdown & UI**: `react-markdown`, `remark-gfm`
 
 ### Backend (`server/`)
 - **Runtime & Server**: Node.js, Express 5, TypeScript (`tsx`)
 - **AI Agent Framework**: Mastra (`@mastra/core`, `@mastra/memory`, `@mastra/libsql`)
-- **AI Provider**: OpenAI (`gpt-4o-mini`)
-- **Calendar & Auth**: Google APIs (`googleapis`), Descope Node SDK (`@descope/node-sdk`, `@descope/mcp-express`)
-- **Database**: PostgreSQL (`pg`), LibSQL (Mastra memory storage)
-
-### Infrastructure & Tooling
-- **Database Container**: Docker Compose (PostgreSQL 16)
-- **Package Manager**: npm
+- **Database**: PostgreSQL 16 (`pg`), LibSQL (conversational agent memory)
+- **Queues & Async Dispatch**: BullMQ & Redis (`ioredis`)
+- **Integrations**: Google APIs (`googleapis`), Descope Node SDK (`@descope/node-sdk`), Nodemailer (`nodemailer`)
 
 ---
 
@@ -46,145 +37,97 @@ Calby is an intelligent calendar management assistant that connects to your cale
 
 ```text
 calby/
-├── docker-compose.yml       # Local PostgreSQL container service
-├── .gitignore               # Multi-package ignore rules
-├── README.md                # Project documentation
+├── docker-compose.yml       # Local PostgreSQL database container
+├── README.md                # Main project documentation
+├── docs/                    # Architectural & operational documentation
+│   ├── architecture.md      # Multi-tier system architecture & security model
+│   ├── development.md       # Setup, local development, migrations & testing
+│   ├── integrations.md      # Google, Telegram, WhatsApp & LLM integrations
+│   └── deployment.md        # Production hosting, health checks & env vars
+│
 ├── client/                  # Next.js frontend application
-│   ├── .env.example         # Frontend environment template
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── next.config.ts
-│   ├── public/              # Static assets and branding
-│   └── src/
-│       ├── app/             # App router pages (dashboard, sign-in)
-│       ├── components/      # UI components (auth, dashboard, landing)
-│       └── lib/             # API client, agent client, utility functions
-└── server/                  # Express & Mastra backend service
-    ├── .env.example         # Backend environment template
-    ├── package.json
-    ├── tsconfig.json
-    ├── scripts/             # Database migration scripts
-    ├── sql/                 # SQL schema definitions
-    └── src/
-        ├── config/          # Descope, memory, and agent instructions
-        ├── db/              # PostgreSQL pool connection
-        ├── mcp/             # Calendar tools & MCP mount
-        ├── middleware/      # Authentication session middleware
-        ├── repositories/    # Database access layer (users, connections)
-        ├── routes/          # Express route definitions
-        └── services/        # Business logic (agent, calendar, token)
+│   ├── src/
+│   │   ├── app/             # App router pages (dashboard, calendar, sign-in)
+│   │   ├── components/      # UI components (auth, dashboard, landing, ui)
+│   │   ├── context/         # React contexts (LLM, preferences, profile)
+│   │   └── lib/             # API client, types & utilities
+│   └── package.json
+│
+└── server/                  # Express backend & AI services
+    ├── sql/                 # 23 idempotent PostgreSQL migrations
+    ├── scripts/             # Database migration runner
+    ├── src/
+    │   ├── config/          # Descope, memory, agent instructions
+    │   ├── db/              # PostgreSQL connection pool
+    │   ├── middleware/      # Authentication session verification
+    │   ├── repositories/    # Data access layer with tenant isolation
+    │   ├── routes/          # Express REST & webhook routes
+    │   ├── services/        # Domain services (calendar, tasks, money, etc.)
+    │   │   ├── llm/         # 12 LLM provider adapters & tool formatters
+    │   │   ├── notifications/# Channel registry, queue & transports
+    │   │   └── reports/     # Report engine, renderers & export services
+    │   ├── tools/           # AI tool registry, router & handlers
+    │   └── index.ts         # Application entrypoint & HTTP server
+    └── package.json
 ```
 
 ---
 
-## Environment Variables
+## Quick Start
 
-### Frontend (`client/.env`)
-Create `client/.env` based on `client/.env.example`:
-
-```env
-# Descope Client Authentication
-NEXT_PUBLIC_DESCOPE_PROJECT_ID=your_descope_project_id
-
-# Backend API URL
-NEXT_PUBLIC_API_URL=http://localhost:4000
-```
-
-### Backend (`server/.env`)
-Create `server/.env` based on `server/.env.example`:
-
-```env
-# Server Configuration
-PORT=4000
-APP_URL=http://localhost:3000
-
-# PostgreSQL Database (Neon PostgreSQL or self-hosted)
-DATABASE_URL=postgresql://user:password@your-neon-host/neondb?sslmode=require
-
-# Descope Authentication
-DESCOPE_PROJECT_ID=your_descope_project_id
-DESCOPE_MANAGEMENT_KEY=your_descope_management_key
-DESCOPE_CALENDAR_CONNECTION_ID=google-calendar
-
-# AI Configuration
-OPENAI_API_KEY=your_openai_api_key
-AI_MODEL=gpt-4o-mini
-
-# Model Context Protocol (MCP) Server
-SERVER_URL=http://localhost:4000
-DESCOPE_MCP_SERVER_WELL_KNOWN_URL=
-```
-
----
-
-## Local Development
-
-### Prerequisites
+### 1. Prerequisites
 - Node.js (v20+ recommended)
-- npm
-- Docker & Docker Compose (optional for local PostgreSQL)
+- PostgreSQL (local or cloud instance like Neon)
+- (Optional) Redis for background queues
 
-### 1. Database Setup
-Start local PostgreSQL via Docker Compose:
-```bash
-docker compose up -d
-```
-Or configure a cloud PostgreSQL connection string (such as Neon) in `server/.env`.
+### 2. Install & Configure
 
-Run database migrations:
 ```bash
-cd server
-npm run migrate
-```
-
-### 2. Start the Backend Server
-```bash
+# Clone & install backend
 cd server
 npm install
+cp .env.example .env
+
+# Run database migrations
+npm run migrate
+
+# Start backend server
 npm run dev
 ```
-The server will start on `http://localhost:4000`.
 
-### 3. Start the Frontend Client
 ```bash
+# In a separate terminal, install & start frontend
 cd client
 npm install
+cp .env.example .env
 npm run dev
 ```
-The application will be accessible at `http://localhost:3000`.
+
+The client will be running at `http://localhost:3000` and the API server at `http://localhost:4000`.
 
 ---
 
-## Calendar Integrations
+## Testing & Quality Verification
 
-Calby integrates with **Google Calendar** via OAuth tokens managed securely through Descope Outbound Applications:
-- **List Events**: Retrieve scheduled events across specified date ranges.
-- **Create Events**: Schedule new meetings with titles, descriptions, times, and attendees.
-- **Update Events**: Reschedule or modify existing meetings.
-- **Delete Events**: Cancel meetings directly through conversational commands.
-- **Find Free Slots**: Query calendar availability to suggest non-conflicting meeting slots.
+```bash
+# Run all backend unit & integration tests
+cd server
+npm test
 
----
+# Type check
+cd server && npx tsc --noEmit
+cd ../client && npx tsc --noEmit
 
-## AI Providers
-
-- **Agent Engine**: Mastra Agent framework orchestrating calendar tool calling and conversational memory.
-- **Model**: OpenAI `gpt-4o-mini` configured for structured tool use and conversational scheduling workflows.
-
----
-
-## Development Workflow
-
-- **Branching Strategy**:
-  - `main`: Production-ready releases.
-  - `develop`: Integration branch for ongoing development.
-  - `feature/*`: Specific feature branches (e.g. `feature/calendar-ui`).
-- **Commit Style**: Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `perf:`).
+# Production builds
+cd server && npm run build
+cd ../client && npm run build
+```
 
 ---
 
-## Security Notes
+## Documentation
 
-- **Never Commit Secrets**: Real API keys, Descope management keys, database credentials, and OAuth secrets must never be committed.
-- **Environment Isolation**: Always use `.env` for local configuration and refer to `.env.example` for required variables.
-- **Token Security**: OAuth access and refresh tokens are retrieved and validated per session without persisting long-term credentials on the client.
+- [Architecture & Security](docs/architecture.md)
+- [Local Development & Testing](docs/development.md)
+- [Integrations & Connectors](docs/integrations.md)
+- [Production Deployment](docs/deployment.md)
