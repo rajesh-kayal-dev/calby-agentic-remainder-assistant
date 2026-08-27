@@ -17,6 +17,8 @@ import {
   Trash2,
   Users,
   X,
+  ListTodo,
+  Coins,
 } from "lucide-react";
 import {
   FormEvent,
@@ -52,6 +54,8 @@ import { CalendarPanel } from "./calendar-panel";
 import { CalendarWorkspace } from "./calendar/calendar-workspace";
 import { RemindersPanel } from "./reminders/reminders-panel";
 import { ContactsPanel } from "./contacts/contacts-panel";
+import { TasksPanel } from "./tasks/tasks-panel";
+import { MoneyPanel } from "./money/money-panel";
 import { DashboardAmbientBackground } from "./dashboard-ambient-background";
 import { CalbyTooltip } from "../ui/calby-tooltip";
 import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
@@ -229,7 +233,11 @@ const WELCOME_PROMPT =
 
 const SUGGESTIONS = [
   "What's on today?",
-  "What's on tomorrow?",
+  "What does Rahul owe me?",
+  "What is pending with Rahul?",
+  "Who owes me money?",
+  "Show my pending tasks",
+  "Send Rahul his pending list",
   "Find a free slot tomorrow morning",
   "Create a meeting",
 ];
@@ -298,6 +306,18 @@ function sanitizeProgressMessage(msg?: string): string {
   }
   if (lower.includes("event") || lower.includes("meet")) {
     return "Reviewing schedule...";
+  }
+  if (lower.includes("assistant") || lower.includes("summary") || lower.includes("pending")) {
+    return "Gathering your pending items...";
+  }
+  if (lower.includes("money") || lower.includes("ledger") || lower.includes("payment")) {
+    return "Checking money records...";
+  }
+  if (lower.includes("task")) {
+    return "Checking tasks...";
+  }
+  if (lower.includes("contact")) {
+    return "Looking up contact...";
   }
   return msg;
 }
@@ -573,7 +593,7 @@ function ChatPanel({
   const [progress, setProgress] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts">(initialView);
+  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts" | "tasks" | "money">(initialView);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("ai-providers");
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { profile, isLoading: isProfileLoading } = useUserProfile();
@@ -1103,7 +1123,29 @@ function ChatPanel({
                   activeView === "reminders" ? "text-lime-400" : "text-zinc-400"
                 )}
               />
-              <span>Reminders & Tasks</span>
+              <span>Reminders</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("tasks");
+                setSidebarOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-150 border",
+                activeView === "tasks"
+                  ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
+                  : "border-transparent text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              )}
+            >
+              <ListTodo
+                className={cn(
+                  "size-4",
+                  activeView === "tasks" ? "text-lime-400" : "text-zinc-400"
+                )}
+              />
+              <span>Tasks Manager</span>
             </button>
 
             <button
@@ -1126,6 +1168,28 @@ function ChatPanel({
                 )}
               />
               <span>Contacts Directory</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("money");
+                setSidebarOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-150 border",
+                activeView === "money"
+                  ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
+                  : "border-transparent text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              )}
+            >
+              <Coins
+                className={cn(
+                  "size-4",
+                  activeView === "money" ? "text-lime-400" : "text-zinc-400"
+                )}
+              />
+              <span>Money Ledger</span>
             </button>
 
             {/* Unified Single Google Calendar Item */}
@@ -1343,11 +1407,15 @@ function ChatPanel({
           </div>
         </aside>
 
-        {/* Dynamic View: Reminders vs Contacts vs Calendar Workspace vs AI Assistant View */}
+        {/* Dynamic View: Reminders vs Contacts vs Tasks vs Calendar Workspace vs AI Assistant View */}
         {activeView === "reminders" ? (
           <RemindersPanel sessionToken={sessionToken} />
+        ) : activeView === "tasks" ? (
+          <TasksPanel sessionToken={sessionToken} />
         ) : activeView === "contacts" ? (
           <ContactsPanel sessionToken={sessionToken} />
+        ) : activeView === "money" ? (
+          <MoneyPanel sessionToken={sessionToken} />
         ) : activeView === "calendar" ? (
           <div className="flex min-w-0 flex-1 overflow-hidden">
             <CalendarWorkspace
@@ -1532,6 +1600,15 @@ function ChatPanel({
                                   sendMessage(`Confirm action for tool ${toolId}`);
                                 }}
                                 onOpenConnectCalendar={() => setGoogleCalendarOverlayOpen(true)}
+                                onSendReport={(channel, _report, summaryLine) => {
+                                  const channelLabel =
+                                    channel === "gmail" ? "Gmail"
+                                    : channel === "whatsapp" ? "WhatsApp"
+                                    : "Telegram";
+                                  sendMessage(
+                                    `Yes, send the report via ${channelLabel}. confirmed=true, channel=${channel}`,
+                                  );
+                                }}
                               />
                             );
                           })

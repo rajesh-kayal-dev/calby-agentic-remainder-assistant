@@ -18,6 +18,7 @@ export interface CreateReminderPayload {
   description?: string;
   timezone?: string;
   recurrence?: RecurrenceType;
+  taskId?: string;
 }
 
 export interface UpdateReminderPayload {
@@ -37,6 +38,7 @@ export interface UpdateReminderPayload {
   dueAt?: string;
   status?: ReminderStatus;
   recurrence?: RecurrenceType;
+  taskId?: string;
 }
 
 export async function fetchReminders(

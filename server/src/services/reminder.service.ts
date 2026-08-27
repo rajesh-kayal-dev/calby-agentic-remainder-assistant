@@ -10,6 +10,7 @@ import {
   ReminderRow,
   ReminderStatus,
   RecurrenceType,
+  getReminderByTaskIdFromDb,
 } from "../repositories/reminder.repository.js";
 import { InAppNotificationChannel } from "./notifications/in-app-channel.service.js";
 import { NotificationChannel } from "./notifications/notification-channel.interface.js";
@@ -22,6 +23,7 @@ import {
   calculateExecutionTimestamp,
   validateObligationInput,
 } from "./obligation.service.js";
+import { getTaskByIdFromDb } from "../repositories/task.repository.js";
 
 
 
@@ -69,7 +71,15 @@ export async function createReminder(input: {
   recurrence?: RecurrenceType;
   channel?: string;
   metadata?: Record<string, unknown>;
+  taskId?: string | null;
 }): Promise<ReminderRow> {
+  if (input.taskId) {
+    const task = await getTaskByIdFromDb(input.authUserId, input.taskId);
+    if (!task) {
+      throw new Error("Task not found or access denied");
+    }
+  }
+
   const obligationType: ObligationType = input.obligationType || "custom";
 
   validateObligationInput({
@@ -138,6 +148,7 @@ export async function createReminder(input: {
     recurrence: input.recurrence || "none",
     channel: targetChannel,
     metadata: input.metadata,
+    taskId: input.taskId,
   });
 }
 
@@ -164,8 +175,16 @@ export async function updateReminder(
     status?: ReminderStatus;
     dueAt?: string | Date;
     recurrence?: RecurrenceType;
+    taskId?: string | null;
   },
 ): Promise<ReminderRow | null> {
+  if (updates.taskId) {
+    const task = await getTaskByIdFromDb(authUserId, updates.taskId);
+    if (!task) {
+      throw new Error("Task not found or access denied");
+    }
+  }
+
   let parsedDueAt: Date | undefined = undefined;
   if (updates.dueAt) {
     parsedDueAt = typeof updates.dueAt === "string" ? new Date(updates.dueAt) : updates.dueAt;
@@ -181,6 +200,7 @@ export async function updateReminder(
     dueAt: parsedDueAt,
     nextRunAt: parsedDueAt,
     recurrence: updates.recurrence,
+    taskId: updates.taskId,
   });
 }
 
@@ -268,3 +288,11 @@ export async function processDueReminder(
     nextRunAt: nextRun,
   };
 }
+
+export async function getReminderByTaskId(
+  authUserId: string,
+  taskId: string,
+): Promise<ReminderRow | null> {
+  return getReminderByTaskIdFromDb(authUserId, taskId);
+}
+

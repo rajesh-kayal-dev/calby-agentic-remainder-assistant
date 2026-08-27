@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const sans = Inter({
   subsets: ["latin"],
+  display: "swap",
   variable: "--font-sans",
 });
 

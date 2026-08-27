@@ -10,7 +10,9 @@ import { llmRouter } from "./routes/llm.routes.js";
 import { toolsRouter } from "./routes/tools.routes.js";
 import { reminderRoutes } from "./routes/reminder.routes.js";
 import { contactRouter } from "./routes/contact.routes.js";
+import { taskRouter } from "./routes/task.routes.js";
 import { webhookRouter } from "./routes/webhook.routes.js";
+import { moneyRouter } from "./routes/money.routes.js";
 import { mountMcpServer } from "./mcp/mount.js";
 import { globalScheduler } from "./services/reminder-scheduler.service.js";
 
@@ -49,6 +51,8 @@ app.use("/api/llm", llmRouter);
 app.use("/api/tools", toolsRouter);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/contacts", contactRouter);
+app.use("/api", taskRouter);
+app.use("/api", moneyRouter);
 
 mountMcpServer(app);
 

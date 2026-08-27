@@ -44,12 +44,12 @@ export function DashboardAmbientBackground({
     }
 
     const runInit = () => {
-      if (window.UnicornStudio) {
+      if (window.UnicornStudio && !window.UnicornStudio.isInitialized) {
         try {
-          window.UnicornStudio.isInitialized = false;
           window.UnicornStudio.init();
-        } catch (e) {
-          console.error("UnicornStudio init error:", e);
+          window.UnicornStudio.isInitialized = true;
+        } catch {
+          // Ignore transient WebGL canvas initialization warnings cleanly
         }
       }
     };
@@ -63,21 +63,10 @@ export function DashboardAmbientBackground({
       script.async = true;
       script.onload = () => {
         runInit();
-        setTimeout(runInit, 150);
-        setTimeout(runInit, 500);
       };
       document.body.appendChild(script);
     } else {
       runInit();
-      const t1 = setTimeout(runInit, 100);
-      const t2 = setTimeout(runInit, 350);
-      const t3 = setTimeout(runInit, 800);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-        mediaQuery.removeEventListener("change", handleMotionChange);
-      };
     }
 
     return () => {
@@ -93,7 +82,7 @@ export function DashboardAmbientBackground({
       {/* 1. Deep Black Base Layer (#050505) */}
       <div className="absolute inset-0 bg-[#050505]" />
 
-      {/* 2. Unicorn Studio AI Ambient Animation Layer with Vibrant Calby Green Color Transform */}
+      {/* 2. Unicorn Studio AI Ambient Animation Layer */}
       {!reducedMotion ? (
         <div
           className="aura-background-component absolute inset-0 w-full h-full pointer-events-none transition-opacity duration-700 ease-out"
@@ -115,15 +104,13 @@ export function DashboardAmbientBackground({
         </div>
       ) : null}
 
-      {/* 3. Calby Green Atmospheric Glow (#102000 base with #9CFF00 / #62D900 highlights) */}
+      {/* 3. Calby Green Atmospheric Glow */}
       {showGlow ? (
         <>
-          {/* Deep dark green ambient base */}
           <div
             className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[900px] rounded-full blur-[150px]"
             style={{ backgroundColor: "rgba(16, 32, 0, 0.55)" }}
           />
-          {/* Soft neon-green core highlight (#9CFF00) */}
           <div
             className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[350px] w-[650px] rounded-full blur-[120px]"
             style={{ backgroundColor: "rgba(156, 255, 0, 0.08)" }}

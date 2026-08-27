@@ -13,6 +13,8 @@ const DEFAULT_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/documents",
+  "https://www.googleapis.com/auth/spreadsheets",
 ];
 
 const STATE_SECRET = process.env.ENCRYPTION_KEY || "google-oauth-state-secret-key-32bytes!";
@@ -38,6 +40,16 @@ export function hasCalendarScope(scopes?: string[]): boolean {
 export function hasGmailScope(scopes?: string[]): boolean {
   if (!scopes || !Array.isArray(scopes)) return false;
   return scopes.some((s) => s === "https://www.googleapis.com/auth/gmail.send");
+}
+
+export function hasDocsScope(scopes?: string[]): boolean {
+  if (!scopes || !Array.isArray(scopes)) return false;
+  return scopes.some((s) => s === "https://www.googleapis.com/auth/documents");
+}
+
+export function hasSheetsScope(scopes?: string[]): boolean {
+  if (!scopes || !Array.isArray(scopes)) return false;
+  return scopes.some((s) => s === "https://www.googleapis.com/auth/spreadsheets");
 }
 
 export function generateGoogleOAuthState(authUserId: string): string {
@@ -296,6 +308,48 @@ export async function getCalendarConnectionStatus(
 
   const calendarAllowed = hasCalendarScope(conn.scopes);
   if (!calendarAllowed) {
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+  }
+
+  return {
+    connected: true,
+    email: conn.email,
+    scopes: conn.scopes,
+    status: "connected",
+  };
+}
+
+export async function getDocsConnectionStatus(
+  authUserId: string,
+): Promise<GoogleOAuthStatusResult> {
+  const conn = await getGoogleOAuthConnectionByAuthId(authUserId);
+  if (!conn || conn.status !== "connected") {
+    return { connected: false, status: conn?.status || "disconnected" };
+  }
+
+  const docsAllowed = hasDocsScope(conn.scopes);
+  if (!docsAllowed) {
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+  }
+
+  return {
+    connected: true,
+    email: conn.email,
+    scopes: conn.scopes,
+    status: "connected",
+  };
+}
+
+export async function getSheetsConnectionStatus(
+  authUserId: string,
+): Promise<GoogleOAuthStatusResult> {
+  const conn = await getGoogleOAuthConnectionByAuthId(authUserId);
+  if (!conn || conn.status !== "connected") {
+    return { connected: false, status: conn?.status || "disconnected" };
+  }
+
+  const sheetsAllowed = hasSheetsScope(conn.scopes);
+  if (!sheetsAllowed) {
     return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
   }
 

@@ -1,0 +1,431 @@
+/* report-summary-card.css
+ * Styles for the ReportSummaryCard component.
+ * Uses CSS custom properties to integrate with the existing Calby dark theme.
+ */
+
+/* ─── Card shell ─────────────────────────────────────────────────────────── */
+
+.report-card {
+  background: hsl(var(--card, 240 10% 8%));
+  border: 1px solid hsl(var(--border, 240 10% 16%));
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: var(--font-sans, "Inter", system-ui, sans-serif);
+  color: hsl(var(--foreground, 0 0% 95%));
+  max-width: 680px;
+  width: 100%;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  animation: reportCardIn 0.25s ease;
+}
+
+@keyframes reportCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+
+.report-card-header {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid hsl(var(--border, 240 10% 16%));
+  background: linear-gradient(135deg, hsl(240 10% 10%), hsl(240 10% 13%));
+}
+
+.report-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.report-card-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.report-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  color: hsl(var(--foreground, 0 0% 98%));
+}
+
+.report-card-period {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground, 240 5% 60%));
+  font-weight: 500;
+}
+
+.report-card-type-badge {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: hsl(263 70% 28%);
+  color: hsl(263 80% 85%);
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.report-card-summary-line {
+  margin: 10px 0 4px;
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground, 240 5% 65%));
+  font-style: italic;
+}
+
+.report-card-generated {
+  display: block;
+  font-size: 0.68rem;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  margin-top: 4px;
+}
+
+/* ─── Sections ───────────────────────────────────────────────────────────── */
+
+.report-sections {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-section {
+  border-bottom: 1px solid hsl(var(--border, 240 10% 14%));
+}
+
+.report-section:last-child {
+  border-bottom: none;
+}
+
+.report-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.report-section-toggle:hover {
+  background: hsl(240 10% 12%);
+}
+
+.report-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-section-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: hsl(var(--foreground, 0 0% 90%));
+}
+
+.report-section-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: hsl(240 10% 20%);
+  color: hsl(var(--muted-foreground, 240 5% 65%));
+}
+
+.report-section-chevron {
+  font-size: 0.6rem;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.report-section-content {
+  padding: 0 20px 14px;
+  animation: sectionOpen 0.18s ease;
+}
+
+@keyframes sectionOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Section body ───────────────────────────────────────────────────────── */
+
+.report-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ─── Metric rows ────────────────────────────────────────────────────────── */
+
+.report-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid hsl(var(--border, 240 10% 14%));
+  font-size: 0.8rem;
+}
+
+.report-metric-row:last-child {
+  border-bottom: none;
+}
+
+.report-metric-row.report-metric-highlight .report-metric-value {
+  color: hsl(143 60% 55%);
+  font-weight: 700;
+}
+
+.report-metric-label {
+  color: hsl(var(--muted-foreground, 240 5% 60%));
+}
+
+.report-metric-value {
+  font-weight: 600;
+  color: hsl(var(--foreground, 0 0% 95%));
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Currency breakdown ─────────────────────────────────────────────────── */
+
+.report-currency-breakdown {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.report-currency-label {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground, 240 5% 55%));
+}
+
+.report-currency-chip {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: hsl(240 10% 20%);
+  color: hsl(var(--foreground, 0 0% 88%));
+  font-weight: 600;
+}
+
+/* ─── Item rows ──────────────────────────────────────────────────────────── */
+
+.report-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 0.8rem;
+  border-bottom: 1px solid hsl(var(--border, 240 10% 12%));
+}
+
+.report-item-row:last-child {
+  border-bottom: none;
+}
+
+.report-item-row.overdue .report-item-title {
+  color: hsl(0 72% 60%);
+}
+
+.report-item-row.done .report-item-title {
+  text-decoration: line-through;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+}
+
+.report-item-icon {
+  font-size: 0.75rem;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground, 240 5% 55%));
+}
+
+.report-item-title {
+  flex: 1;
+  color: hsl(var(--foreground, 0 0% 90%));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-item-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(143 60% 55%);
+  flex-shrink: 0;
+}
+
+.report-item-dir {
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.report-item-dir.receivable {
+  color: hsl(143 60% 55%);
+}
+
+.report-item-dir.payable {
+  color: hsl(0 72% 60%);
+}
+
+.report-item-due {
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  flex-shrink: 0;
+}
+
+/* ─── Progress bar ───────────────────────────────────────────────────────── */
+
+.report-progress-bar-wrap {
+  height: 5px;
+  background: hsl(240 10% 18%);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px 0 2px;
+}
+
+.report-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, hsl(143 60% 40%), hsl(143 70% 55%));
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.report-progress-label {
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground, 240 5% 55%));
+}
+
+/* ─── Raw fallback ───────────────────────────────────────────────────────── */
+
+.report-raw {
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground, 240 5% 55%));
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.report-empty {
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  text-align: center;
+  padding: 8px 0;
+}
+
+.report-more {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* ─── Delivery action row ─────────────────────────────────────────────────── */
+
+.report-delivery-row {
+  border-top: 1px solid hsl(var(--border, 240 10% 16%));
+  padding: 10px 14px;
+  background: hsl(240 10% 6%);
+}
+
+.report-delivery-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-delivery-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground, 240 5% 50%));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 2px;
+}
+
+.report-delivery-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border, 240 10% 18%));
+  background: hsl(240 10% 11%);
+  color: hsl(var(--muted-foreground, 240 5% 65%));
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.report-delivery-btn:hover {
+  background: hsl(var(--accent, 83 100% 60%) / 0.12);
+  border-color: hsl(var(--accent, 83 100% 60%) / 0.4);
+  color: hsl(var(--accent, 83 100% 60%));
+}
+
+.report-delivery-btn:active {
+  transform: scale(0.96);
+}
+
+/* Delivery status banner */
+
+.report-delivery-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 5px 10px;
+}
+
+.report-delivery-status--sending {
+  color: hsl(var(--muted-foreground, 240 5% 60%));
+  background: hsl(240 10% 13%);
+}
+
+.report-delivery-status--sent {
+  color: hsl(142 71% 45%);
+  background: hsl(142 71% 45% / 0.1);
+}
+
+.report-delivery-status--failed {
+  color: hsl(0 72% 60%);
+  background: hsl(0 72% 60% / 0.1);
+}
+
+.report-delivery-icon {
+  flex-shrink: 0;
+}
+
+.report-delivery-icon--spin {
+  animation: reportSpinner 1s linear infinite;
+}
+
+@keyframes reportSpinner {
+  to { transform: rotate(360deg); }
+}

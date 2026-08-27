@@ -25,13 +25,16 @@ import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "./markdown-message";
 import { useLLM } from "@/context/llm-context";
 import { CalbyTooltip } from "../ui/calby-tooltip";
+import { ReportSummaryCard } from "./reports/report-summary-card";
+import type { Report } from "../../lib/report.types";
 
 function parseReasoningAndResponse(text: string): {
   thinkingText: string;
   responseContent: string;
   confirmationPayload: any | null;
+  reportPayload: { report: Report; summaryLine?: string } | null;
 } {
-  if (!text) return { thinkingText: "", responseContent: "", confirmationPayload: null };
+  if (!text) return { thinkingText: "", responseContent: "", confirmationPayload: null, reportPayload: null };
 
   let confirmationPayload: any = null;
   const jsonMatch = text.match(/```json\s*(\{[\s\S]*?"type"\s*:\s*"confirmation_required"[\s\S]*?\})\s*```/i);
@@ -43,20 +46,35 @@ function parseReasoningAndResponse(text: string): {
     }
   }
 
+  // Parse embedded report block (```report ... ```)
+  let reportPayload: { report: Report; summaryLine?: string } | null = null;
+  const reportMatch = text.match(/```report\s*([\s\S]*?)\s*```/i);
+  if (reportMatch) {
+    try {
+      const parsed = JSON.parse(reportMatch[1]);
+      if (parsed?.report?.type && parsed?.report?.sections) {
+        reportPayload = { report: parsed.report, summaryLine: parsed.summaryLine };
+      }
+    } catch {
+      reportPayload = null;
+    }
+  }
+
   const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i);
   let thinkingText = "";
-  let responseContent = text;
+  // Strip report blocks from the visible response
+  let responseContent = text.replace(/```report[\s\S]*?```/gi, "").trim();
 
   if (thinkMatch) {
     thinkingText = thinkMatch[1].trim();
-    responseContent = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    responseContent = responseContent.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   } else if (text.includes("<think>")) {
-    const parts = text.split("<think>");
+    const parts = responseContent.split("<think>");
     thinkingText = parts[1] ? parts[1].trim() : "";
     responseContent = parts[0] ? parts[0].trim() : "";
   }
 
-  return { thinkingText, responseContent, confirmationPayload };
+  return { thinkingText, responseContent, confirmationPayload, reportPayload };
 }
 
 interface AssistantMessageItemProps {
@@ -68,6 +86,8 @@ interface AssistantMessageItemProps {
   onDeleteMessage?: (id: string) => void;
   onConfirmAction?: (toolId: string, details: any) => void;
   onOpenConnectCalendar?: () => void;
+  /** Called when user clicks a delivery channel button on an embedded report card */
+  onSendReport?: (channel: "gmail" | "whatsapp" | "telegram", report: any, summaryLine?: string) => void;
 }
 
 export function AssistantMessageItem({
@@ -79,6 +99,7 @@ export function AssistantMessageItem({
   onDeleteMessage,
   onConfirmAction,
   onOpenConnectCalendar,
+  onSendReport,
 }: AssistantMessageItemProps) {
   const { providers, defaultConnection, activeLLM } = useLLM();
 
@@ -89,9 +110,14 @@ export function AssistantMessageItem({
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(true);
   const [confirmationStatus, setConfirmationStatus] = useState<"pending" | "confirmed" | "cancelled">("pending");
+  const [reportDeliveryState, setReportDeliveryState] = useState<{
+    status: "sending" | "sent" | "failed";
+    channel: string;
+    message?: string;
+  } | undefined>(undefined);
 
   // Parse reasoning and confirmation payload
-  const { thinkingText, responseContent, confirmationPayload } = useMemo(() => {
+  const { thinkingText, responseContent, confirmationPayload, reportPayload } = useMemo(() => {
     return parseReasoningAndResponse(content);
   }, [content]);
 
@@ -285,6 +311,25 @@ export function AssistantMessageItem({
           ) : (
             responseContent && <MarkdownMessage content={responseContent} tone="assistant" />
           )}
+        </div>
+      )}
+
+      {/* 4b. REPORT CARD — rendered if LLM embedded a ```report block */}
+      {reportPayload && (
+        <div className="mt-2">
+          <ReportSummaryCard
+            report={reportPayload.report}
+            summaryLine={reportPayload.summaryLine}
+            deliveryState={reportDeliveryState}
+            onSendViaChannel={
+              onSendReport && !isStreaming
+                ? (channel) => {
+                    setReportDeliveryState({ status: "sending", channel });
+                    onSendReport(channel, reportPayload.report, reportPayload.summaryLine);
+                  }
+                : undefined
+            }
+          />
         </div>
       )}
 

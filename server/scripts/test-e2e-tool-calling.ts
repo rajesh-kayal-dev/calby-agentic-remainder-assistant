@@ -98,7 +98,7 @@ async function runE2ETests() {
   const step1 = await executeTool({
     authUserId: testAuthUserId,
     toolId: "reminder.create",
-    input: { title: "Review Q3 Report" },
+    input: { title: "Review Q3 Report", dueAtIso: new Date().toISOString() },
   });
   const step2 = await executeTool({
     authUserId: testAuthUserId,

@@ -20,6 +20,7 @@ export type ReminderRow = {
   recurrence: RecurrenceType | null;
   channel: string;
   metadata: Record<string, unknown> | null;
+  task_id?: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -50,6 +51,7 @@ export async function createReminderInDb(input: {
   recurrence?: RecurrenceType;
   channel?: string;
   metadata?: Record<string, unknown>;
+  taskId?: string | null;
 }): Promise<ReminderRow> {
   const result = await getPool().query<ReminderRow>(
     `
@@ -65,9 +67,10 @@ export async function createReminderInDb(input: {
       next_run_at,
       recurrence,
       channel,
-      metadata
+      metadata,
+      task_id
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING *
     `,
     [
@@ -83,6 +86,7 @@ export async function createReminderInDb(input: {
       input.recurrence || "none",
       input.channel || "in_app",
       JSON.stringify(input.metadata || {}),
+      input.taskId || null,
     ],
   );
 
@@ -150,6 +154,7 @@ export async function updateReminderInDb(
     nextRunAt?: Date;
     recurrence?: RecurrenceType;
     metadata?: Record<string, unknown>;
+    taskId?: string | null;
   },
 ): Promise<ReminderRow | null> {
   const res = await getPool().query<ReminderRow>(
@@ -163,8 +168,9 @@ export async function updateReminderInDb(
       next_run_at = COALESCE($5, next_run_at),
       recurrence = COALESCE($6, recurrence),
       metadata = CASE WHEN $7::boolean THEN $8::jsonb ELSE metadata END,
+      task_id = CASE WHEN $9::boolean THEN $10::uuid ELSE task_id END,
       updated_at = NOW()
-    WHERE id = $9 AND auth_user_id = $10
+    WHERE id = $11 AND auth_user_id = $12
     RETURNING *
     `,
     [
@@ -176,6 +182,8 @@ export async function updateReminderInDb(
       updates.recurrence ?? null,
       updates.metadata !== undefined,
       updates.metadata ? JSON.stringify(updates.metadata) : null,
+      updates.taskId !== undefined,
+      updates.taskId || null,
       reminderId,
       authUserId,
     ],
@@ -461,4 +469,20 @@ export async function updateWhatsAppDeliveryStatusByProviderMessageId(input: {
   );
 
   return (res.rowCount ?? 0) > 0;
+}
+
+export async function getReminderByTaskIdFromDb(
+  authUserId: string,
+  taskId: string,
+): Promise<ReminderRow | null> {
+  const res = await getPool().query<ReminderRow>(
+    `
+    SELECT r.*, c.name AS recipient_name
+    FROM reminders r
+    LEFT JOIN contacts c ON r.recipient_id = c.id
+    WHERE r.task_id = $1 AND r.auth_user_id = $2
+    `,
+    [taskId, authUserId],
+  );
+  return res.rows[0] || null;
 }

@@ -5,6 +5,7 @@ import {
   updateNotificationDeliveryInDb,
   getReminderByIdFromDb,
 } from "../../repositories/reminder.repository.js";
+import { executeScheduledReportJob } from "../reports/scheduled-report.service.js";
 
 const RedisClient = (RedisPkg as any).default || RedisPkg;
 
@@ -16,8 +17,14 @@ export interface DeliveryJobPayload {
   scheduledAt: string;
 }
 
+export interface ScheduledReportJobPayload {
+  scheduleId: string;
+  authUserId: string;
+}
+
 export interface NotificationQueueDispatcher {
   dispatchDelivery(payload: DeliveryJobPayload): Promise<void>;
+  dispatchScheduledReport(payload: ScheduledReportJobPayload): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
   isRedisEnabled(): boolean;
@@ -30,6 +37,14 @@ export class InlineNotificationDispatcher implements NotificationQueueDispatcher
 
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
+
+  async dispatchScheduledReport(payload: ScheduledReportJobPayload): Promise<void> {
+    try {
+      await executeScheduledReportJob(payload.scheduleId, payload.authUserId);
+    } catch (err) {
+      console.error("[InlineNotificationDispatcher] Error executing scheduled report:", err);
+    }
+  }
 
   async dispatchDelivery(payload: DeliveryJobPayload): Promise<void> {
     const channelImpl = defaultChannelRegistry.getChannel(payload.channel);
@@ -164,6 +179,19 @@ export class BullMQNotificationDispatcher implements NotificationQueueDispatcher
         },
       },
     );
+
+    // 4. Initialize Worker for Scheduled Reports
+    new Worker<ScheduledReportJobPayload>(
+      "calby-reports",
+      async (job) => {
+        const payload = job.data;
+        await executeScheduledReportJob(payload.scheduleId, payload.authUserId);
+      },
+      {
+        connection: this.redisConnection,
+        concurrency: 5,
+      },
+    );
   }
 
   async dispatchDelivery(payload: DeliveryJobPayload): Promise<void> {
@@ -173,6 +201,20 @@ export class BullMQNotificationDispatcher implements NotificationQueueDispatcher
 
     await this.queue.add("deliver-notification", payload, {
       jobId: payload.deliveryId, // Database idempotency mapping
+    });
+  }
+
+  async dispatchScheduledReport(payload: ScheduledReportJobPayload): Promise<void> {
+    if (!this.redisConnection) {
+      throw new Error("Redis is not initialized. Call start() first.");
+    }
+
+    const reportQueue = new Queue<ScheduledReportJobPayload>("calby-reports", {
+      connection: this.redisConnection,
+    });
+    
+    await reportQueue.add("run-scheduled-report", payload, {
+      jobId: `report-${payload.scheduleId}-${Date.now()}`,
     });
   }
 
@@ -199,3 +241,5 @@ export function createNotificationDispatcher(): NotificationQueueDispatcher {
   }
   return new InlineNotificationDispatcher();
 }
+
+export const globalQueueDispatcher = createNotificationDispatcher();

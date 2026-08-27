@@ -21,7 +21,21 @@ const createReminderSchema = z.object({
   title: z.string().trim().min(1).max(300),
   description: z.string().trim().optional(),
   timezone: z.string().optional(),
-  dueAt: z.string().min(1),
+  dueAt: z.string().optional(),
+  eventAt: z.string().optional(),
+  remindBefore: z
+    .object({
+      value: z.number(),
+      unit: z.enum(["minutes", "hours", "days", "weeks", "months"]),
+    })
+    .optional(),
+  obligationType: z.string().optional(),
+  amount: z.number().optional(),
+  currency: z.string().optional(),
+  subject: z.string().optional(),
+  recipientId: z.string().uuid().nullable().optional(),
+  channel: z.string().optional(),
+  taskId: z.string().uuid().nullable().optional(),
   recurrence: z.enum(["none", "daily", "weekly", "monthly", "yearly"]).optional(),
 });
 
@@ -31,6 +45,9 @@ const updateReminderSchema = z.object({
   status: z.enum(["active", "paused", "completed", "cancelled"]).optional(),
   dueAt: z.string().optional(),
   recurrence: z.enum(["none", "daily", "weekly", "monthly", "yearly"]).optional(),
+  recipientId: z.string().uuid().nullable().optional(),
+  channel: z.string().optional(),
+  taskId: z.string().uuid().nullable().optional(),
 });
 
 reminderRoutes.use(requireSession);
@@ -46,6 +63,7 @@ reminderRoutes.post("/", async (req, res) => {
     const reminder = await createReminder({
       authUserId: req.authContext!.authUserId,
       ...parsed.data,
+      obligationType: parsed.data.obligationType as any,
     });
     res.status(201).json({ reminder });
   } catch (error: any) {

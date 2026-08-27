@@ -16,6 +16,8 @@ interface CreateReminderModalProps {
   onClose: () => void;
   sessionToken: string;
   onCreated: (reminder: Reminder) => void;
+  taskId?: string;
+  defaultTitle?: string;
 }
 
 export function CreateReminderModal({
@@ -23,8 +25,10 @@ export function CreateReminderModal({
   onClose,
   sessionToken,
   onCreated,
+  taskId,
+  defaultTitle = "",
 }: CreateReminderModalProps) {
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(defaultTitle);
   const [description, setDescription] = useState("");
   const [recipientId, setRecipientId] = useState<string>("");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -42,6 +46,12 @@ export function CreateReminderModal({
   const [timezone] = useState("Asia/Kolkata");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTitle(defaultTitle);
+    }
+  }, [isOpen, defaultTitle]);
 
   useEffect(() => {
     if (sessionToken && isOpen) {
@@ -77,6 +87,7 @@ export function CreateReminderModal({
         timezone,
         recurrence,
         channel,
+        taskId: taskId || undefined,
       };
 
       const res = await createReminderApi(sessionToken, payload);
