@@ -112,6 +112,35 @@ export function CreateReminderModal({
     setTimeInputText(formatTime12h(time));
   }, [time]);
 
+  const getTimeParts = (time24: string) => {
+    try {
+      const [h24Str, mStr] = time24.split(":");
+      let h24 = parseInt(h24Str, 10);
+      const ampm = h24 >= 12 ? "PM" : "AM";
+      let h12 = h24 % 12;
+      if (h12 === 0) h12 = 12;
+      return {
+        hour12: String(h12).padStart(2, "0"),
+        minute: mStr || "00",
+        ampm,
+      };
+    } catch {
+      return { hour12: "09", minute: "00", ampm: "AM" };
+    }
+  };
+
+  const updateTimeFromParts = (h12Str: string, mStr: string, ampmStr: string) => {
+    let h = parseInt(h12Str, 10);
+    const m = parseInt(mStr, 10);
+
+    if (ampmStr === "PM" && h < 12) h += 12;
+    if (ampmStr === "AM" && h === 12) h = 0;
+
+    const new24 = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    setTime(new24);
+    setTimeInputText(formatTime12h(new24));
+  };
+
   // Click outside to close date/time popovers
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -381,6 +410,74 @@ export function CreateReminderModal({
                   <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
                     Select Time
                   </div>
+
+                  {/* Time Tuner Parts: Hours, Minutes, AM/PM */}
+                  {(() => {
+                    const { hour12, minute, ampm } = getTimeParts(time);
+                    return (
+                      <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-zinc-900 border border-zinc-800">
+                        {/* Hours Select */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-zinc-500">HH:</span>
+                          <select
+                            value={hour12}
+                            onChange={(e) => updateTimeFromParts(e.target.value, minute, ampm)}
+                            className="bg-transparent text-xs font-bold text-lime-400 focus:outline-none cursor-pointer py-1 px-1 rounded hover:bg-zinc-800"
+                          >
+                            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map((h) => (
+                              <option key={h} value={h} className="bg-[#161722] text-white">
+                                {h}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <span className="text-zinc-500 font-bold text-xs">:</span>
+
+                        {/* Minutes Select */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-zinc-500">MM:</span>
+                          <select
+                            value={minute}
+                            onChange={(e) => updateTimeFromParts(hour12, e.target.value, ampm)}
+                            className="bg-transparent text-xs font-bold text-lime-400 focus:outline-none cursor-pointer py-1 px-1 rounded hover:bg-zinc-800"
+                          >
+                            {[
+                              "00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"
+                            ].map((m) => (
+                              <option key={m} value={m} className="bg-[#161722] text-white">
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* AM/PM Segmented Toggle */}
+                        <div className="ml-auto flex items-center rounded-lg bg-zinc-950 p-0.5 border border-zinc-800 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => updateTimeFromParts(hour12, minute, "AM")}
+                            className={cn(
+                              "px-2 py-0.5 rounded-md transition-all cursor-pointer",
+                              ampm === "AM" ? "bg-lime-400 text-zinc-950 font-extrabold" : "text-zinc-400 hover:text-white"
+                            )}
+                          >
+                            AM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateTimeFromParts(hour12, minute, "PM")}
+                            className={cn(
+                              "px-2 py-0.5 rounded-md transition-all cursor-pointer",
+                              ampm === "PM" ? "bg-lime-400 text-zinc-950 font-extrabold" : "text-zinc-400 hover:text-white"
+                            )}
+                          >
+                            PM
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Editable Text Time Input */}
                   <div className="flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5">
