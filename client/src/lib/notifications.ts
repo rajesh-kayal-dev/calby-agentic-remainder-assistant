@@ -2,6 +2,7 @@ import { apiFetch } from "./api";
 
 export type NotificationType =
   | "CALENDAR_REMINDER"
+  | "REMINDER_DUE"
   | "CALENDAR_CONNECTED"
   | "EVENT_CREATED"
   | "EVENT_UPDATED"

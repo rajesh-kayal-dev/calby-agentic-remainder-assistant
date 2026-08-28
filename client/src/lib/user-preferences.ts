@@ -6,6 +6,14 @@ export type UserNotificationPreferences = {
   reminderMinutes: number;
 };
 
+export type AlertSoundOption =
+  | "calby_bell"
+  | "classic_alarm"
+  | "soft_chime"
+  | "digital"
+  | "gentle_reminder"
+  | "silent";
+
 export type UserPreferencesData = {
   theme: "dark" | "midnight" | "system";
   defaultCalendarId: string;
@@ -13,6 +21,18 @@ export type UserPreferencesData = {
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   timeFormat: "12h" | "24h";
   notifications: UserNotificationPreferences;
+
+  // Alert Settings
+  alertsEnabled?: boolean;
+  alertCalendar?: boolean;
+  alertTasks?: boolean;
+  alertFollowups?: boolean;
+  defaultReminderMinutes?: number;
+  alertSound?: AlertSoundOption | string;
+  alertVolume?: number;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
 };
 
 export type ConnectedCalendarItem = {

@@ -58,6 +58,7 @@ import { TasksPanel } from "./tasks/tasks-panel";
 import { MoneyPanel } from "./money/money-panel";
 import { DashboardAmbientBackground } from "./dashboard-ambient-background";
 import { CalbyTooltip } from "../ui/calby-tooltip";
+import { CalbyAlertModal } from "./calby-alert-modal";
 import { GoogleCalendarLogo } from "../ui/google-calendar-logo";
 import { AccountPopover } from "./settings/account-popover";
 import { SettingsView, SettingsTabId } from "./settings/settings-view";
@@ -594,8 +595,34 @@ function ChatPanel({
   const [progress, setProgress] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts" | "tasks" | "money">(initialView);
-  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("ai-providers");
+  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts" | "tasks" | "money">(() => {
+    if (typeof window !== "undefined") {
+      const savedView = localStorage.getItem("calby_active_view");
+      if (savedView && ["assistant", "calendar", "settings", "reminders", "contacts", "tasks", "money"].includes(savedView)) {
+        return savedView as any;
+      }
+    }
+    return initialView;
+  });
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>(() => {
+    if (typeof window !== "undefined") {
+      const savedTab = localStorage.getItem("calby_settings_tab");
+      if (savedTab) return savedTab as SettingsTabId;
+    }
+    return "connectors";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("calby_active_view", activeView);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("calby_settings_tab", settingsTab);
+    }
+  }, [settingsTab]);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const { profile, isLoading: isProfileLoading } = useUserProfile();
   const { defaultConnection, providers, activeLLM } = useLLM();
@@ -1102,7 +1129,7 @@ function ChatPanel({
                   activeView === "calendar" ? "text-lime-400" : "text-zinc-400"
                 )}
               />
-              <span>Calendar Workspace</span>
+              <span>Calendar</span>
             </button>
 
             <button
@@ -1713,6 +1740,9 @@ function ChatPanel({
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
       />
+
+      {/* Real-time Calby Alert Modal */}
+      <CalbyAlertModal sessionToken={sessionToken} />
 
       {/* Floating Toast Notification Banner */}
       {toastMessage && (

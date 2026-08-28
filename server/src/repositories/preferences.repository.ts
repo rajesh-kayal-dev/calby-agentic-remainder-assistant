@@ -11,6 +11,16 @@ export type UserPreferencesRow = {
   daily_briefing: boolean;
   event_reminder: boolean;
   reminder_minutes: number;
+  alerts_enabled: boolean;
+  alert_calendar: boolean;
+  alert_tasks: boolean;
+  alert_followups: boolean;
+  default_reminder_minutes: number;
+  alert_sound: string;
+  alert_volume: number;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
   created_at: Date;
   updated_at: Date;
 };
@@ -24,6 +34,16 @@ export type UserPreferencesInput = {
   dailyBriefing?: boolean;
   eventReminder?: boolean;
   reminderMinutes?: number;
+  alertsEnabled?: boolean;
+  alertCalendar?: boolean;
+  alertTasks?: boolean;
+  alertFollowups?: boolean;
+  defaultReminderMinutes?: number;
+  alertSound?: string;
+  alertVolume?: number;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
 };
 
 export async function getUserPreferences(authUserId: string): Promise<UserPreferencesRow | null> {
@@ -49,6 +69,17 @@ export async function upsertUserPreferences(
   const eventReminder = input.eventReminder ?? existing?.event_reminder ?? true;
   const reminderMinutes = input.reminderMinutes ?? existing?.reminder_minutes ?? 10;
 
+  const alertsEnabled = input.alertsEnabled ?? existing?.alerts_enabled ?? true;
+  const alertCalendar = input.alertCalendar ?? existing?.alert_calendar ?? true;
+  const alertTasks = input.alertTasks ?? existing?.alert_tasks ?? true;
+  const alertFollowups = input.alertFollowups ?? existing?.alert_followups ?? true;
+  const defaultReminderMinutes = input.defaultReminderMinutes ?? existing?.default_reminder_minutes ?? 15;
+  const alertSound = input.alertSound ?? existing?.alert_sound ?? "calby_bell";
+  const alertVolume = input.alertVolume ?? existing?.alert_volume ?? 70;
+  const quietHoursEnabled = input.quietHoursEnabled ?? existing?.quiet_hours_enabled ?? false;
+  const quietHoursStart = input.quietHoursStart ?? existing?.quiet_hours_start ?? "22:00";
+  const quietHoursEnd = input.quietHoursEnd ?? existing?.quiet_hours_end ?? "07:00";
+
   const result = await getPool().query<UserPreferencesRow>(
     `
     INSERT INTO user_preferences (
@@ -61,9 +92,19 @@ export async function upsertUserPreferences(
       daily_briefing,
       event_reminder,
       reminder_minutes,
+      alerts_enabled,
+      alert_calendar,
+      alert_tasks,
+      alert_followups,
+      default_reminder_minutes,
+      alert_sound,
+      alert_volume,
+      quiet_hours_enabled,
+      quiet_hours_start,
+      quiet_hours_end,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
     ON CONFLICT (auth_user_id)
     DO UPDATE SET
       theme = EXCLUDED.theme,
@@ -74,6 +115,16 @@ export async function upsertUserPreferences(
       daily_briefing = EXCLUDED.daily_briefing,
       event_reminder = EXCLUDED.event_reminder,
       reminder_minutes = EXCLUDED.reminder_minutes,
+      alerts_enabled = EXCLUDED.alerts_enabled,
+      alert_calendar = EXCLUDED.alert_calendar,
+      alert_tasks = EXCLUDED.alert_tasks,
+      alert_followups = EXCLUDED.alert_followups,
+      default_reminder_minutes = EXCLUDED.default_reminder_minutes,
+      alert_sound = EXCLUDED.alert_sound,
+      alert_volume = EXCLUDED.alert_volume,
+      quiet_hours_enabled = EXCLUDED.quiet_hours_enabled,
+      quiet_hours_start = EXCLUDED.quiet_hours_start,
+      quiet_hours_end = EXCLUDED.quiet_hours_end,
       updated_at = NOW()
     RETURNING *
     `,
@@ -87,6 +138,16 @@ export async function upsertUserPreferences(
       dailyBriefing,
       eventReminder,
       reminderMinutes,
+      alertsEnabled,
+      alertCalendar,
+      alertTasks,
+      alertFollowups,
+      defaultReminderMinutes,
+      alertSound,
+      alertVolume,
+      quietHoursEnabled,
+      quietHoursStart,
+      quietHoursEnd,
     ],
   );
 

@@ -16,149 +16,66 @@ import {
 import { cn } from "@/lib/utils";
 import { useLLM } from "@/context/llm-context";
 import { ModelDefinition } from "@/lib/llm";
+import {
+  GroqLogoIcon,
+  GeminiLogoIcon,
+  OpenAILogoIcon,
+  AnthropicLogoIcon,
+  OpenRouterLogoIcon,
+  OllamaLogoIcon,
+  DeepSeekLogoIcon,
+  PerplexityLogoIcon,
+  MistralLogoIcon,
+  MiniMaxLogoIcon,
+  GrokLogoIcon,
+  ZAILogoIcon,
+} from "@/components/ui/llm-provider-icons";
 
 function ProviderLogoIcon({ id, className }: { id: string; className?: string }) {
   if (id === "groq") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#F55036] rounded-xl text-white font-black text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        9
-      </div>
-    );
+    return <GroqLogoIcon className={className} />;
   }
   if (id === "google-gemini" || id === "gemini") {
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center bg-white border border-zinc-200 rounded-xl p-1 text-center shadow-sm select-none",
-          className,
-        )}
-      >
-        <Sparkles className="size-3.5 text-blue-500" />
-        <span className="text-[6px] font-bold text-zinc-900 leading-none mt-0.5">Gemini</span>
-      </div>
-    );
+    return <GeminiLogoIcon className={className} />;
   }
   if (id === "openai") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-white shadow-sm select-none",
-          className,
-        )}
-      >
-        <Bot className="size-3.5 text-emerald-400" />
-      </div>
-    );
+    return <OpenAILogoIcon className={className} />;
   }
   if (id === "anthropic") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#D97757] rounded-xl text-white font-bold text-[11px] shadow-sm select-none",
-          className,
-        )}
-      >
-        A\
-      </div>
-    );
+    return <AnthropicLogoIcon className={className} />;
   }
   if (id === "openrouter") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-cyan-400 shadow-sm select-none",
-          className,
-        )}
-      >
-        <Globe className="size-3.5" />
-      </div>
-    );
+    return <OpenRouterLogoIcon className={className} />;
   }
   if (id === "ollama") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-white border border-zinc-200 rounded-xl text-zinc-900 font-bold text-[11px] shadow-sm select-none",
-          className,
-        )}
-      >
-        🦙
-      </div>
-    );
+    return <OllamaLogoIcon className={className} />;
   }
   if (id === "deepseek") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#4D6BFE] rounded-xl text-white font-bold text-[11px] shadow-sm select-none",
-          className,
-        )}
-      >
-        🐋
-      </div>
-    );
+    return <DeepSeekLogoIcon className={className} />;
   }
   if (id === "perplexity") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-teal-400 shadow-sm select-none",
-          className,
-        )}
-      >
-        <Radio className="size-3.5" />
-      </div>
-    );
+    return <PerplexityLogoIcon className={className} />;
   }
   if (id === "mistral") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#FF7000] rounded-xl text-white font-black text-[11px] shadow-sm select-none",
-          className,
-        )}
-      >
-        M
-      </div>
-    );
+    return <MistralLogoIcon className={className} />;
   }
   if (id === "minimax") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#FF4757] rounded-xl text-white font-bold text-[11px] shadow-sm select-none",
-          className,
-        )}
-      >
-        <Zap className="size-3.5" />
-      </div>
-    );
+    return <MiniMaxLogoIcon className={className} />;
   }
   if (id === "xai-grok" || id === "grok") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-950 border border-zinc-700 rounded-xl text-white font-black text-[10px] shadow-sm select-none",
-          className,
-        )}
-      >
-        xAI
-      </div>
-    );
+    return <GrokLogoIcon className={className} />;
+  }
+  if (id === "zai") {
+    return <ZAILogoIcon className={className} />;
   }
   return (
     <div
       className={cn(
-        "flex items-center justify-center bg-[#2B2D42] rounded-xl text-lime-400 font-bold text-[11px] shadow-sm select-none",
+        "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-white shadow-sm select-none",
         className,
       )}
     >
-      Z
+      <Bot className="size-3.5 text-lime-400" />
     </div>
   );
 }
@@ -311,14 +228,17 @@ export function LLMModelSwitcher({ onOpenSettings }: LLMModelSwitcherProps) {
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         className={cn(
-          "h-8 px-3 rounded-full border flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer select-none",
+          "h-8 px-3 rounded-full border flex items-center gap-2 text-xs font-semibold transition-all cursor-pointer select-none",
           isOpen
             ? "border-lime-400/80 bg-[#121915] text-white ring-1 ring-lime-400/30"
             : "border-zinc-800 bg-[#121316] text-zinc-200 hover:border-zinc-700 hover:bg-[#16181E]",
         )}
         title="Switch AI Provider and Model"
       >
-        <Sparkles className="size-3.5 text-lime-400 shrink-0" />
+        <ProviderLogoIcon
+          id={currentActiveProviderDef?.id || "groq"}
+          className="size-4 shrink-0 rounded-sm"
+        />
         <span className="truncate max-w-[200px] text-xs font-medium">{activeModelDisplay}</span>
         <ChevronDown className="size-3.5 text-zinc-400 shrink-0 ml-0.5" />
       </button>

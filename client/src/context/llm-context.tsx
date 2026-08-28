@@ -11,6 +11,7 @@ import {
   deleteLLMConnectionApi,
   testLLMConnectionApi,
   setDefaultLLMConnectionApi,
+  DEFAULT_LLM_PROVIDERS,
   LLMProviderDefinition,
   UserLLMConnectionDTO,
   ModelDefinition,
@@ -59,7 +60,7 @@ const LLMContext = createContext<LLMContextType | undefined>(undefined);
 export function LLMProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, sessionToken } = useSession();
 
-  const [providers, setProviders] = useState<LLMProviderDefinition[]>([]);
+  const [providers, setProviders] = useState<LLMProviderDefinition[]>(DEFAULT_LLM_PROVIDERS);
   const [connections, setConnections] = useState<UserLLMConnectionDTO[]>([]);
   const [activeLLM, setActiveLLM] = useState<ActiveLLMSelection | null>(null);
   const [targetSettingsProviderId, setTargetSettingsProviderId] = useState<string | null>(null);

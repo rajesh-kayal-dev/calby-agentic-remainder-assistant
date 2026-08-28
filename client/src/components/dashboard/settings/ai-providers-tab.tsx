@@ -20,6 +20,8 @@ import {
   CheckCircle2,
   LoaderCircle,
   HelpCircle,
+  ExternalLink,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,148 +33,66 @@ import {
   ConfigFieldDefinition,
 } from "@/lib/llm";
 
+import {
+  GeminiLogoIcon,
+  OpenAILogoIcon,
+  GroqLogoIcon,
+  AnthropicLogoIcon,
+  OpenRouterLogoIcon,
+  OllamaLogoIcon,
+  DeepSeekLogoIcon,
+  PerplexityLogoIcon,
+  MistralLogoIcon,
+  MiniMaxLogoIcon,
+  GrokLogoIcon,
+  ZAILogoIcon,
+} from "@/components/ui/llm-provider-icons";
+
 function ProviderLogoIcon({ id, className }: { id: string; className?: string }) {
   if (id === "groq") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#F55036] rounded-xl text-white font-black text-sm shadow-sm select-none",
-          className,
-        )}
-      >
-        9
-      </div>
-    );
+    return <GroqLogoIcon className={className} />;
   }
   if (id === "google-gemini" || id === "gemini") {
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center bg-white border border-zinc-200 rounded-xl p-1 text-center shadow-sm select-none",
-          className,
-        )}
-      >
-        <Sparkles className="size-4 text-blue-500" />
-        <span className="text-[7px] font-bold text-zinc-900 leading-none mt-0.5">Gemini</span>
-      </div>
-    );
+    return <GeminiLogoIcon className={className} />;
   }
   if (id === "openai") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-white shadow-sm select-none",
-          className,
-        )}
-      >
-        <Bot className="size-4 text-emerald-400" />
-      </div>
-    );
+    return <OpenAILogoIcon className={className} />;
   }
   if (id === "anthropic") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#D97757] rounded-xl text-white font-bold text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        A\
-      </div>
-    );
+    return <AnthropicLogoIcon className={className} />;
   }
   if (id === "openrouter") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-cyan-400 shadow-sm select-none",
-          className,
-        )}
-      >
-        <Globe className="size-4" />
-      </div>
-    );
+    return <OpenRouterLogoIcon className={className} />;
   }
   if (id === "ollama") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-white border border-zinc-200 rounded-xl text-zinc-900 font-bold text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        🦙
-      </div>
-    );
+    return <OllamaLogoIcon className={className} />;
   }
   if (id === "deepseek") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#4D6BFE] rounded-xl text-white font-bold text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        🐋
-      </div>
-    );
+    return <DeepSeekLogoIcon className={className} />;
   }
   if (id === "perplexity") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-teal-400 shadow-sm select-none",
-          className,
-        )}
-      >
-        <Radio className="size-4" />
-      </div>
-    );
+    return <PerplexityLogoIcon className={className} />;
   }
   if (id === "mistral") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#FF7000] rounded-xl text-white font-black text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        M
-      </div>
-    );
+    return <MistralLogoIcon className={className} />;
   }
   if (id === "minimax") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-[#FF4757] rounded-xl text-white font-bold text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        <Zap className="size-4" />
-      </div>
-    );
+    return <MiniMaxLogoIcon className={className} />;
   }
   if (id === "xai-grok" || id === "grok") {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-zinc-950 border border-zinc-700 rounded-xl text-white font-black text-xs shadow-sm select-none",
-          className,
-        )}
-      >
-        xAI
-      </div>
-    );
+    return <GrokLogoIcon className={className} />;
+  }
+  if (id === "zai") {
+    return <ZAILogoIcon className={className} />;
   }
   return (
     <div
       className={cn(
-        "flex items-center justify-center bg-[#2B2D42] rounded-xl text-lime-400 font-bold text-xs shadow-sm select-none",
+        "flex items-center justify-center bg-zinc-900 border border-zinc-700 rounded-xl text-white shadow-sm select-none",
         className,
       )}
     >
-      Z
+      <Bot className="size-4 text-lime-400" />
     </div>
   );
 }
@@ -547,9 +467,9 @@ export function AIProvidersTab() {
       )}
 
       {/* MAIN SINGLE CARD: AI PROVIDER SELECTION */}
-      <div className="relative rounded-2xl border border-zinc-800/80 bg-[#0B0C0E] p-6 space-y-6 shadow-xl">
-        {/* CARD TOP ROW: TITLE & DYNAMIC SAVE/CONNECTED STATUS */}
-        <div className="flex items-center justify-between gap-4">
+      <div className="relative rounded-2xl border border-zinc-800/80 bg-[#0B0C0E] p-6 space-y-5 shadow-xl">
+        {/* CARD TOP ROW: TITLE & DYNAMIC STATUS BADGE */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-sm font-semibold text-white">AI Provider Selection</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
@@ -558,29 +478,115 @@ export function AIProvidersTab() {
           </div>
 
           <div className="flex items-center gap-2">
-            {currentConnection && !apiKeyInput.trim() ? (
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-lime-400/30 bg-lime-400/10 px-3 py-1.5 text-xs font-semibold text-lime-400 shadow-sm">
-                <CheckCircle2 className="size-3.5" />
-                Connected
-              </span>
-            ) : (
-              <Button
-                type="button"
-                onClick={handleSaveConfiguration}
-                disabled={saving}
-                className="h-8.5 px-4 rounded-xl bg-lime-400 text-zinc-950 hover:bg-lime-300 font-semibold text-xs transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            {/* Status Badges */}
+            {(() => {
+              if (testResult && !testResult.valid) {
+                return (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 shadow-sm">
+                    <AlertCircle className="size-3.5" />
+                    Invalid key
+                  </span>
+                );
+              }
+              if (currentConnection) {
+                if (currentConnection.status === "error") {
+                  return (
+                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-400 shadow-sm">
+                      <AlertCircle className="size-3.5" />
+                      Connection error
+                    </span>
+                  );
+                }
+                if (currentConnection.status === "active") {
+                  return (
+                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-lime-400/30 bg-lime-400/10 px-3 py-1.5 text-xs font-semibold text-lime-400 shadow-sm">
+                      <CheckCircle2 className="size-3.5" />
+                      Connected
+                    </span>
+                  );
+                }
+              }
+              if (currentProviderDef?.apiKeyRequired && !currentConnection?.hasApiKey) {
+                return (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 text-xs font-medium text-zinc-400">
+                    <span className="size-1.5 rounded-full bg-zinc-500" />
+                    Not connected
+                  </span>
+                );
+              }
+              return (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-lime-400/30 bg-lime-400/10 px-3 py-1.5 text-xs font-semibold text-lime-400 shadow-sm">
+                  <CheckCircle2 className="size-3.5" />
+                  Ready
+                </span>
+              );
+            })()}
+
+            <Button
+              type="button"
+              onClick={handleSaveConfiguration}
+              disabled={saving}
+              className="h-8.5 px-4 rounded-xl bg-lime-400 text-zinc-950 hover:bg-lime-300 font-semibold text-xs transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {saving ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>Save changes</span>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* OFFICIAL DOCUMENTATION & GET API KEY LINKS BAR */}
+        <div className="flex items-center justify-between gap-3 text-xs bg-[#111216] border border-zinc-800/80 rounded-xl px-4 py-2.5 flex-wrap">
+          <div className="flex items-center gap-4 text-xs">
+            {currentProviderDef?.docsUrl && (
+              <a
+                href={currentProviderDef.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors cursor-pointer"
               >
-                {saving ? (
-                  <>
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <span>Save changes</span>
-                )}
-              </Button>
+                <BookOpen className="size-3.5 text-zinc-500" />
+                <span>Official Documentation</span>
+              </a>
+            )}
+            {currentProviderDef?.apiKeyUrl && (
+              <a
+                href={currentProviderDef.apiKeyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-lime-400 hover:text-lime-300 font-semibold transition-colors cursor-pointer"
+              >
+                <ExternalLink className="size-3.5 text-lime-500" />
+                <span>Get {currentProviderDef.name} API Key</span>
+              </a>
             )}
           </div>
+
+          {currentConnection && (
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testing}
+              className="text-[11px] font-semibold text-zinc-300 hover:text-lime-400 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {testing ? (
+                <>
+                  <LoaderCircle className="size-3 animate-spin text-lime-400" />
+                  <span>Validating API Key...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCcw className="size-3 text-zinc-400" />
+                  <span>Test Connection</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         {/* PROVIDER SELECTOR TRIGGER & DROPDOWN */}

@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { getCalendarAccessToken } from "./token.service.js";
+import {
+  getCalendarEventsForUser,
+  getCalendarEventById,
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+  CalendarEventDTO,
+} from "../repositories/calendar-event.repository.js";
+import { createReminderInDb } from "../repositories/reminder.repository.js";
+import { createNotification } from "../repositories/notifications.repository.js";
 
 let googleModule: typeof import("googleapis") | null = null;
 
@@ -24,72 +34,108 @@ async function calendarClient(accessToken: string) {
   });
 }
 
-async function calendarForUser(authUserId: string) {
-  const accessToken = await getCalendarAccessToken(authUserId);
-
-  return calendarClient(accessToken);
+async function googleCalendarForUser(authUserId: string) {
+  try {
+    const accessToken = await getCalendarAccessToken(authUserId);
+    if (!accessToken) return null;
+    return calendarClient(accessToken);
+  } catch {
+    return null;
+  }
 }
 
-function formatEvent(event: {
-  id?: string | null;
-  summary?: string | null;
-  description?: string | null;
-  location?: string | null;
-  start?: { dateTime?: string | null; date?: string | null } | null;
-  end?: { dateTime?: string | null; date?: string | null } | null;
-  htmlLink?: string | null;
-  hangoutLink?: string | null;
-  attendees?: Array<{
-    email?: string | null;
-    displayName?: string | null;
-  }> | null;
-}) {
+function formatGoogleEvent(event: any): CalendarEventDTO {
+  const startStr = event.start?.dateTime ?? event.start?.date ?? new Date().toISOString();
+  const endStr = event.end?.dateTime ?? event.end?.date ?? new Date(Date.now() + 3600000).toISOString();
+  const isAllDay = !event.start?.dateTime && Boolean(event.start?.date);
+
   return {
-    id: event.id,
+    id: `gcal-${event.id}`,
+    authUserId: "",
     title: event.summary ?? "(no title)",
     description: event.description?.trim() || null,
     location: event.location?.trim() || null,
-    start: event.start?.dateTime ?? event.start?.date ?? null,
-    end: event.end?.dateTime ?? event.end?.date ?? null,
-    htmlLink: event.htmlLink ?? null,
-    meetLink: event.hangoutLink ?? null,
+    category: "meeting",
+    priority: "medium",
+    start: startStr,
+    end: endStr,
+    allDay: isAllDay,
+    recurrence: "none",
+    remindMinutesBefore: 15,
     attendees: (event.attendees ?? [])
-      .map((person) => person.email || person.displayName)
-      .filter((value): value is string => Boolean(value)),
+      .map((person: any) => ({
+        email: person.email,
+        name: person.displayName,
+      }))
+      .filter((a: any) => Boolean(a.email || a.name)),
+    googleEventId: event.id,
+    source: "google",
+    metadata: {
+      htmlLink: event.htmlLink ?? null,
+      meetLink: event.hangoutLink ?? null,
+    },
+    createdAt: event.created ?? new Date().toISOString(),
+    updatedAt: event.updated ?? new Date().toISOString(),
   };
 }
 
 export async function listUpcomingMeetings(input: {
   authUserId: string;
+  startIso?: string;
+  endIso?: string;
+  category?: string;
   maxResults?: number;
   todayOnly?: boolean;
-}) {
-  const calendar = await calendarForUser(input.authUserId);
-
-  let timeMin = new Date().toISOString();
-  let timeMax: string | undefined;
+}): Promise<CalendarEventDTO[]> {
+  let startIso = input.startIso;
+  let endIso = input.endIso;
 
   if (input.todayOnly) {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-
     const end = new Date();
     end.setHours(23, 59, 59, 999);
-
-    timeMin = start.toISOString();
-    timeMax = end.toISOString();
+    startIso = start.toISOString();
+    endIso = end.toISOString();
   }
 
-  const response = await calendar.events.list({
-    calendarId: "primary",
-    timeMin,
-    timeMax,
-    maxResults: input.maxResults ?? 10,
-    singleEvents: true,
-    orderBy: "startTime",
+  // 1. Fetch Calby Native Events from PostgreSQL
+  const nativeEvents = await getCalendarEventsForUser(input.authUserId, {
+    startIso,
+    endIso,
+    category: input.category,
   });
 
-  return (response.data.items ?? []).map(formatEvent);
+  // 2. Fetch Google Calendar events if connected
+  let googleEvents: CalendarEventDTO[] = [];
+  try {
+    const gcal = await googleCalendarForUser(input.authUserId);
+    if (gcal) {
+      const response = await gcal.events.list({
+        calendarId: "primary",
+        timeMin: startIso || new Date().toISOString(),
+        timeMax: endIso,
+        maxResults: input.maxResults ?? 50,
+        singleEvents: true,
+        orderBy: "startTime",
+      });
+
+      googleEvents = (response.data.items ?? []).map(formatGoogleEvent);
+    }
+  } catch {
+    // Google Calendar fetch failed or disconnected - safely fallback to native events
+  }
+
+  // 3. Combine and sort
+  const combined = [...nativeEvents, ...googleEvents].sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+  );
+
+  if (input.maxResults && input.maxResults > 0) {
+    return combined.slice(0, input.maxResults);
+  }
+
+  return combined;
 }
 
 export async function createMeeting(input: {
@@ -97,88 +143,169 @@ export async function createMeeting(input: {
   title: string;
   startIso: string;
   endIso: string;
-  attendeeEmails?: string[];
   description?: string;
+  location?: string;
+  category?: "work" | "meeting" | "personal" | "focus" | "other";
+  priority?: "low" | "medium" | "high" | "urgent";
+  allDay?: boolean;
+  recurrence?: "none" | "daily" | "weekly" | "monthly" | "yearly";
+  remindMinutesBefore?: number | null;
+  ringtone?: string;
+  attendeeEmails?: string[];
   addGoogleMeet?: boolean;
-}) {
-  const calendar = await calendarForUser(input.authUserId);
-  const withMeet = input.addGoogleMeet !== false;
+  syncToGoogle?: boolean;
+}): Promise<CalendarEventDTO> {
+  const startAt = new Date(input.startIso);
+  const endAt = new Date(input.endIso);
 
-  const response = await calendar.events.insert({
-    calendarId: "primary",
-    sendUpdates: "all",
-    conferenceDataVersion: withMeet ? 1 : undefined,
-    requestBody: {
-      summary: input.title,
-      description: input.description,
-      start: {
-        dateTime: input.startIso,
-      },
-      end: {
-        dateTime: input.endIso,
-      },
-      attendees: (input.attendeeEmails ?? []).map((email) => ({ email })),
-      conferenceData: withMeet
-        ? {
-            createRequest: {
-              requestId: randomUUID(),
-              conferenceSolutionKey: {
-                type: "hangoutsMeet",
-              },
-            },
-          }
-        : undefined,
-    },
+  const attendees = (input.attendeeEmails || []).map((email) => ({ email }));
+
+  let googleEventId: string | undefined;
+
+  // Optional: Sync to Google Calendar if requested & user has connected Google
+  if (input.syncToGoogle) {
+    try {
+      const gcal = await googleCalendarForUser(input.authUserId);
+      if (gcal) {
+        const withMeet = input.addGoogleMeet !== false;
+        const gResponse = await gcal.events.insert({
+          calendarId: "primary",
+          sendUpdates: "all",
+          conferenceDataVersion: withMeet ? 1 : undefined,
+          requestBody: {
+            summary: input.title,
+            description: input.description,
+            location: input.location,
+            start: { dateTime: input.startIso },
+            end: { dateTime: input.endIso },
+            attendees: (input.attendeeEmails ?? []).map((email) => ({ email })),
+            conferenceData: withMeet
+              ? {
+                  createRequest: {
+                    requestId: randomUUID(),
+                    conferenceSolutionKey: { type: "hangoutsMeet" },
+                  },
+                }
+              : undefined,
+          },
+        });
+        googleEventId = gResponse.data.id || undefined;
+      }
+    } catch {
+      // Ignore Google sync failure and persist locally
+    }
+  }
+
+  // 1. Create native event in DB
+  const event = await createCalendarEvent({
+    authUserId: input.authUserId,
+    title: input.title,
+    description: input.description,
+    location: input.location,
+    category: input.category || "work",
+    priority: input.priority || "medium",
+    startAt,
+    endAt,
+    allDay: input.allDay ?? false,
+    recurrence: input.recurrence || "none",
+    remindMinutesBefore: input.remindMinutesBefore !== undefined ? input.remindMinutesBefore : 0,
+    attendees,
+    googleEventId,
+    metadata: { ringtone: input.ringtone || "chime" },
   });
 
-  return {
-    ...formatEvent(response.data),
-    inviteEmailsSent: (input.attendeeEmails ?? []).length > 0,
-    googleMeetAdded: withMeet,
-  };
-}
+  // 2. Schedule a reminder if requested (or create immediate notification if starting soon/now)
+  if (input.remindMinutesBefore !== undefined && input.remindMinutesBefore !== null) {
+    try {
+      const mins = Number(input.remindMinutesBefore) || 0;
+      const remindTime = new Date(startAt.getTime() - mins * 60000);
+      const now = new Date();
 
-export async function cancelMeeting(input: {
-  authUserId: string;
-  eventId: string;
-}) {
-  const calendar = await calendarForUser(input.authUserId);
+      await createReminderInDb({
+        authUserId: input.authUserId,
+        title: `Upcoming Event: ${input.title}`,
+        description: input.description || `Starts at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        dueAt: remindTime,
+        recurrence: (input.recurrence as any) || "none",
+        channel: "in_app",
+        metadata: { eventId: event.id, ringtone: input.ringtone || "calby_bell" },
+      });
 
-  await calendar.events.delete({
-    calendarId: "primary",
-    eventId: input.eventId,
-    sendUpdates: "all",
-  });
+      // If event reminder time has arrived or event starts within 15 minutes, trigger real-time notification immediately!
+      if (remindTime <= new Date(now.getTime() + 60000)) {
+        await createNotification({
+          authUserId: input.authUserId,
+          type: "event",
+          title: `🔔 Event Alert: ${input.title}`,
+          message: `Your event "${input.title}" is starting at ${startAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          metadata: { eventId: event.id, ringtone: input.ringtone || "calby_bell" },
+        });
+      }
+    } catch {
+      // Non-blocking reminder schedule failure
+    }
+  }
 
-  return {
-    cancelled: true,
-    eventId: input.eventId,
-  };
+  return event;
 }
 
 export async function rescheduleMeeting(input: {
   authUserId: string;
   eventId: string;
-  startIso: string;
-  endIso: string;
-}) {
-  const calendar = await calendarForUser(input.authUserId);
+  title?: string;
+  description?: string;
+  location?: string;
+  category?: "work" | "meeting" | "personal" | "focus" | "other";
+  priority?: "low" | "medium" | "high" | "urgent";
+  startIso?: string;
+  endIso?: string;
+  allDay?: boolean;
+  recurrence?: "none" | "daily" | "weekly" | "monthly" | "yearly";
+  remindMinutesBefore?: number | null;
+  ringtone?: string;
+  attendees?: Array<{ email?: string; name?: string }>;
+}): Promise<CalendarEventDTO | null> {
+  const updates: any = {};
+  if (input.title !== undefined) updates.title = input.title;
+  if (input.description !== undefined) updates.description = input.description;
+  if (input.location !== undefined) updates.location = input.location;
+  if (input.category !== undefined) updates.category = input.category;
+  if (input.priority !== undefined) updates.priority = input.priority;
+  if (input.startIso !== undefined) updates.startAt = new Date(input.startIso);
+  if (input.endIso !== undefined) updates.endAt = new Date(input.endIso);
+  if (input.allDay !== undefined) updates.allDay = input.allDay;
+  if (input.recurrence !== undefined) updates.recurrence = input.recurrence;
+  if (input.remindMinutesBefore !== undefined) updates.remindMinutesBefore = input.remindMinutesBefore;
+  if (input.ringtone !== undefined) updates.metadata = { ringtone: input.ringtone };
+  if (input.attendees !== undefined) updates.attendees = input.attendees;
 
-  const response = await calendar.events.patch({
-    calendarId: "primary",
+  return await updateCalendarEvent(input.authUserId, input.eventId, updates);
+}
+
+export async function cancelMeeting(input: {
+  authUserId: string;
+  eventId: string;
+}): Promise<{ cancelled: boolean; eventId: string }> {
+  // If it's a google-prefixed event
+  if (input.eventId.startsWith("gcal-")) {
+    const rawGcalId = input.eventId.replace("gcal-", "");
+    try {
+      const gcal = await googleCalendarForUser(input.authUserId);
+      if (gcal) {
+        await gcal.events.delete({
+          calendarId: "primary",
+          eventId: rawGcalId,
+        });
+      }
+    } catch {}
+    return { cancelled: true, eventId: input.eventId };
+  }
+
+  const success = await deleteCalendarEvent(input.authUserId, input.eventId);
+  return {
+    cancelled: success,
     eventId: input.eventId,
-    sendUpdates: "all",
-    requestBody: {
-      start: {
-        dateTime: input.startIso,
-      },
-      end: {
-        dateTime: input.endIso,
-      },
-    },
-  });
-
-  return formatEvent(response.data);
+  };
 }
 
 export async function checkCalendarBusy(input: {
@@ -186,26 +313,17 @@ export async function checkCalendarBusy(input: {
   startIso: string;
   endIso: string;
 }) {
-  const calendar = await calendarForUser(input.authUserId);
-
-  const response = await calendar.freebusy.query({
-    requestBody: {
-      timeMin: input.startIso,
-      timeMax: input.endIso,
-      items: [
-        {
-          id: "primary",
-        },
-      ],
-    },
+  const events = await listUpcomingMeetings({
+    authUserId: input.authUserId,
+    startIso: input.startIso,
+    endIso: input.endIso,
   });
 
-  const busy = response.data?.calendars?.primary?.busy ?? [];
+  const busy = events.map((e) => ({
+    start: e.start,
+    end: e.end,
+    title: e.title,
+  }));
 
-  return {
-    busy: busy.map((item) => ({
-      start: item.start ?? null,
-      end: item.end ?? null,
-    })),
-  };
+  return { busy };
 }

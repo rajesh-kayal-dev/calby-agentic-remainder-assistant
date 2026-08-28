@@ -55,12 +55,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     loadNotifications();
   }, [loadNotifications]);
 
-  // Periodic polling for real-time notification updates (every 15 seconds)
+  // Fast periodic polling for real-time notification updates (every 3 seconds)
   useEffect(() => {
     if (!isAuthenticated || !sessionToken) return;
     const interval = setInterval(() => {
       loadNotifications();
-    }, 15000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [isAuthenticated, sessionToken, loadNotifications]);
 

@@ -6,8 +6,10 @@ export interface Contact {
   email?: string | null;
   phoneNumber?: string | null;
   telegramId?: string | null;
+  relationship?: string | null;
+  preferredChannel?: "WhatsApp" | "Email" | "Telegram" | "SMS" | string | null;
   notes?: string | null;
-  created_at: string;
+  created_at?: string;
 }
 
 export async function fetchContactsApi(token: string, search?: string) {
@@ -22,6 +24,8 @@ export async function createContactApi(
     email?: string;
     phoneNumber?: string;
     telegramId?: string;
+    relationship?: string;
+    preferredChannel?: string;
     notes?: string;
   },
 ) {
@@ -40,6 +44,8 @@ export async function updateContactApi(
     email?: string;
     phoneNumber?: string;
     telegramId?: string;
+    relationship?: string;
+    preferredChannel?: string;
     notes?: string;
   },
 ) {

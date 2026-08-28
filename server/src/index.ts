@@ -11,10 +11,20 @@ import { toolsRouter } from "./routes/tools.routes.js";
 import { reminderRoutes } from "./routes/reminder.routes.js";
 import { contactRouter } from "./routes/contact.routes.js";
 import { taskRouter } from "./routes/task.routes.js";
+import { calendarRouter } from "./routes/calendar.routes.js";
 import { webhookRouter } from "./routes/webhook.routes.js";
 import { moneyRouter } from "./routes/money.routes.js";
 import { mountMcpServer } from "./mcp/mount.js";
 import { globalScheduler } from "./services/reminder-scheduler.service.js";
+
+// Global process error handlers to prevent unhandled database drops from crashing process
+process.on("uncaughtException", (err) => {
+  console.warn("[Server Process] Uncaught exception safely captured:", err.message);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.warn("[Server Process] Unhandled rejection safely captured:", reason);
+});
 
 const app = express();
 const port = Number(process.env.PORT) || 4000;
@@ -29,12 +39,11 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin) || origin.startsWith("chrome-extension://")) {
         return callback(null, true);
       }
-      return callback(null, true); // Allow during dev
+      return callback(null, true);
     },
     credentials: true,
   }),
@@ -64,6 +73,7 @@ app.use("/api/llm", llmRouter);
 app.use("/api/tools", toolsRouter);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/contacts", contactRouter);
+app.use("/api/calendar", calendarRouter);
 app.use("/api", taskRouter);
 app.use("/api", moneyRouter);
 

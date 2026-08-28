@@ -109,6 +109,16 @@ userRouter.get("/preferences", requireSession, async (req, res) => {
         eventReminder: dbPrefs?.event_reminder ?? true,
         reminderMinutes: dbPrefs?.reminder_minutes ?? 10,
       },
+      alertsEnabled: dbPrefs?.alerts_enabled ?? true,
+      alertCalendar: dbPrefs?.alert_calendar ?? true,
+      alertTasks: dbPrefs?.alert_tasks ?? true,
+      alertFollowups: dbPrefs?.alert_followups ?? true,
+      defaultReminderMinutes: dbPrefs?.default_reminder_minutes ?? 15,
+      alertSound: dbPrefs?.alert_sound ?? "calby_bell",
+      alertVolume: dbPrefs?.alert_volume ?? 70,
+      quietHoursEnabled: dbPrefs?.quiet_hours_enabled ?? false,
+      quietHoursStart: dbPrefs?.quiet_hours_start ?? "22:00",
+      quietHoursEnd: dbPrefs?.quiet_hours_end ?? "07:00",
     };
 
     res.json({
@@ -136,6 +146,16 @@ userRouter.patch("/preferences", requireSession, async (req, res) => {
       dateFormat,
       timeFormat,
       notifications,
+      alertsEnabled,
+      alertCalendar,
+      alertTasks,
+      alertFollowups,
+      defaultReminderMinutes,
+      alertSound,
+      alertVolume,
+      quietHoursEnabled,
+      quietHoursStart,
+      quietHoursEnd,
     } = req.body || {};
 
     const updated = await upsertUserPreferences(authContext.authUserId, {
@@ -147,6 +167,16 @@ userRouter.patch("/preferences", requireSession, async (req, res) => {
       dailyBriefing: typeof notifications?.dailyBriefing === "boolean" ? notifications.dailyBriefing : undefined,
       eventReminder: typeof notifications?.eventReminder === "boolean" ? notifications.eventReminder : undefined,
       reminderMinutes: typeof notifications?.reminderMinutes === "number" ? notifications.reminderMinutes : undefined,
+      alertsEnabled: typeof alertsEnabled === "boolean" ? alertsEnabled : undefined,
+      alertCalendar: typeof alertCalendar === "boolean" ? alertCalendar : undefined,
+      alertTasks: typeof alertTasks === "boolean" ? alertTasks : undefined,
+      alertFollowups: typeof alertFollowups === "boolean" ? alertFollowups : undefined,
+      defaultReminderMinutes: typeof defaultReminderMinutes === "number" ? defaultReminderMinutes : undefined,
+      alertSound: typeof alertSound === "string" ? alertSound : undefined,
+      alertVolume: typeof alertVolume === "number" ? alertVolume : undefined,
+      quietHoursEnabled: typeof quietHoursEnabled === "boolean" ? quietHoursEnabled : undefined,
+      quietHoursStart: typeof quietHoursStart === "string" ? quietHoursStart : undefined,
+      quietHoursEnd: typeof quietHoursEnd === "string" ? quietHoursEnd : undefined,
     });
 
     res.json({
@@ -162,6 +192,16 @@ userRouter.patch("/preferences", requireSession, async (req, res) => {
           eventReminder: updated.event_reminder,
           reminderMinutes: updated.reminder_minutes,
         },
+        alertsEnabled: updated.alerts_enabled,
+        alertCalendar: updated.alert_calendar,
+        alertTasks: updated.alert_tasks,
+        alertFollowups: updated.alert_followups,
+        defaultReminderMinutes: updated.default_reminder_minutes,
+        alertSound: updated.alert_sound,
+        alertVolume: updated.alert_volume,
+        quietHoursEnabled: updated.quiet_hours_enabled,
+        quietHoursStart: updated.quiet_hours_start,
+        quietHoursEnd: updated.quiet_hours_end,
       },
     });
   } catch (error) {

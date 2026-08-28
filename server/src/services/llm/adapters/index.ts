@@ -9,3 +9,5 @@ export * from "./deepseek.adapter.js";
 export * from "./perplexity.adapter.js";
 export * from "./mistral.adapter.js";
 export * from "./minimax.adapter.js";
+export * from "./grok.adapter.js";
+export * from "./zai.adapter.js";

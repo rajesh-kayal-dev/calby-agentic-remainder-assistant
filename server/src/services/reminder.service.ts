@@ -296,3 +296,39 @@ export async function getReminderByTaskId(
   return getReminderByTaskIdFromDb(authUserId, taskId);
 }
 
+export async function snoozeReminder(
+  authUserId: string,
+  reminderId: string,
+  snoozeMinutes: number = 10,
+): Promise<ReminderRow | null> {
+  const nextRun = new Date(Date.now() + Math.max(1, snoozeMinutes) * 60000);
+  const updated = await updateReminderInDb(authUserId, reminderId, {
+    nextRunAt: nextRun,
+    status: "active",
+  });
+  return updated;
+}
+
+export async function completeReminder(
+  authUserId: string,
+  reminderId: string,
+): Promise<ReminderRow | null> {
+  const reminder = await getReminderByIdFromDb(authUserId, reminderId);
+  if (!reminder) return null;
+
+  const updated = await updateReminderInDb(authUserId, reminderId, {
+    status: "completed",
+  });
+
+  if (reminder.task_id) {
+    try {
+      const { updateTaskInDb } = await import("../repositories/task.repository.js");
+      await updateTaskInDb(authUserId, reminder.task_id, { status: "completed" });
+    } catch {
+      // ignore
+    }
+  }
+
+  return updated;
+}
+

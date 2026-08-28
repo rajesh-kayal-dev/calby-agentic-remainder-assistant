@@ -75,6 +75,16 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
           eventReminder: true,
           reminderMinutes: 10,
         },
+        alertsEnabled: true,
+        alertCalendar: true,
+        alertTasks: true,
+        alertFollowups: true,
+        defaultReminderMinutes: 15,
+        alertSound: "calby_bell",
+        alertVolume: 70,
+        quietHoursEnabled: false,
+        quietHoursStart: "22:00",
+        quietHoursEnd: "07:00",
       });
     } finally {
       setIsLoading(false);

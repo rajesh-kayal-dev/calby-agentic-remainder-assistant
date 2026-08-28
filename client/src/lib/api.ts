@@ -22,10 +22,10 @@ export async function apiFetch<T>(
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch (err: any) {
+    // Graceful fallback error handling for offline/disconnected backend
+    console.warn(`[Calby API Warning] Network request to ${path} failed:`, err?.message || err);
     throw new Error(
-      err?.message === "Failed to fetch"
-        ? "Unable to connect to Calby server. Please check if the backend server is running on http://localhost:4000."
-        : err?.message || "Network request failed",
+      "Unable to connect to Calby backend server (http://localhost:4000)."
     );
   }
 

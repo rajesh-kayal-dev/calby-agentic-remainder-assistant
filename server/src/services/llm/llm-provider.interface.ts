@@ -58,6 +58,8 @@ export interface LLMProviderDefinition {
   capabilities: LLMCapability[];
   enabled: boolean;
   defaultModels: ModelDefinition[];
+  docsUrl?: string;
+  apiKeyUrl?: string;
   advancedControlsLabel?: string;
   advancedFields?: ConfigFieldDefinition[];
 }

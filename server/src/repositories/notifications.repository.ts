@@ -15,8 +15,6 @@ export async function getUserNotifications(
   authUserId: string,
   limit = 50,
 ): Promise<NotificationRow[]> {
-  await seedInitialNotificationsIfEmpty(authUserId);
-
   const result = await getPool().query<NotificationRow>(
     `
     SELECT * FROM notifications
@@ -31,8 +29,6 @@ export async function getUserNotifications(
 }
 
 export async function getUnreadCount(authUserId: string): Promise<number> {
-  await seedInitialNotificationsIfEmpty(authUserId);
-
   const result = await getPool().query<{ count: string }>(
     `
     SELECT COUNT(*) as count FROM notifications
@@ -111,62 +107,4 @@ export async function createNotification(input: {
   );
 
   return result.rows[0];
-}
-
-export async function seedInitialNotificationsIfEmpty(authUserId: string): Promise<void> {
-  const check = await getPool().query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM notifications WHERE auth_user_id = $1`,
-    [authUserId],
-  );
-
-  if (parseInt(check.rows[0]?.count || "0", 10) > 0) {
-    return;
-  }
-
-  const now = new Date();
-  const twoMinsAgo = new Date(now.getTime() - 2 * 60 * 1000);
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-
-  const initialSeeds = [
-    {
-      type: "CALENDAR_REMINDER",
-      title: "Calendar Reminder",
-      message: "Team meeting starts in 10 minutes",
-      read: false,
-      created_at: twoMinsAgo,
-    },
-    {
-      type: "CALENDAR_CONNECTED",
-      title: "Google Calendar",
-      message: "Google Calendar connected successfully",
-      read: false,
-      created_at: oneHourAgo,
-    },
-    {
-      type: "AI_PROVIDER_UPDATED",
-      title: "AI Provider",
-      message: "OpenAI provider updated",
-      read: true,
-      created_at: yesterday,
-    },
-    {
-      type: "EVENT_CREATED",
-      title: "Meeting Scheduled",
-      message: "Client call was added to your calendar",
-      read: true,
-      created_at: twoDaysAgo,
-    },
-  ];
-
-  for (const seed of initialSeeds) {
-    await getPool().query(
-      `
-      INSERT INTO notifications (auth_user_id, type, title, message, read, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      `,
-      [authUserId, seed.type, seed.title, seed.message, seed.read, seed.created_at],
-    );
-  }
 }

@@ -1,286 +1,525 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Bell,
-  CheckCheck,
   Calendar,
-  Bot,
-  Shield,
-  Sparkles,
+  CheckSquare,
+  Clock,
+  Music,
+  Play,
+  Volume2,
+  Moon,
+  Info,
+  ArrowRight,
   Check,
-  Trash2,
-  Filter,
+  RotateCcw,
+  LoaderCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useNotifications } from "@/context/notification-context";
-import { NotificationItem, NotificationType } from "@/lib/notifications";
+import { useUserPreferences } from "@/context/user-preferences-context";
+import { previewRingtone, RINGTONE_OPTIONS } from "@/lib/alert-sound";
+import { UserPreferencesData } from "@/lib/user-preferences";
 
-type FilterCategory = "ALL" | "UNREAD" | "CALENDAR" | "AI" | "SECURITY" | "SYSTEM";
+const REMINDER_TIME_OPTIONS = [
+  { value: 0, label: "At time of event" },
+  { value: 5, label: "5 minutes before" },
+  { value: 10, label: "10 minutes before" },
+  { value: 15, label: "15 minutes before" },
+  { value: 30, label: "30 minutes before" },
+  { value: 60, label: "1 hour before" },
+];
 
-function getNotificationIcon(type: NotificationType) {
-  switch (type) {
-    case "CALENDAR_REMINDER":
-    case "CALENDAR_CONNECTED":
-    case "EVENT_CREATED":
-    case "EVENT_UPDATED":
-    case "EVENT_CANCELLED":
-      return <Calendar className="size-4 text-lime-400" />;
-    case "AI_PROVIDER_UPDATED":
-      return <Bot className="size-4 text-lime-400" />;
-    case "SECURITY":
-      return <Shield className="size-4 text-amber-400" />;
-    case "SYSTEM":
-    default:
-      return <Sparkles className="size-4 text-lime-400" />;
-  }
-}
-
-function formatFormattedTime(dateIso: string): string {
-  try {
-    const d = new Date(dateIso);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
-function getTimeGroup(dateIso: string): "Today" | "Yesterday" | "Older" {
-  try {
-    const d = new Date(dateIso);
-    const now = new Date();
-
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
-
-    const itemTime = d.getTime();
-    if (itemTime >= todayStart) return "Today";
-    if (itemTime >= yesterdayStart) return "Yesterday";
-    return "Older";
-  } catch {
-    return "Older";
-  }
+function PillToggle({
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onChange}
+      className={cn(
+        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs transition-all cursor-pointer select-none",
+        checked
+          ? "bg-lime-400 text-zinc-950 font-bold border border-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.3)]"
+          : "bg-[#181920] border border-zinc-700/80 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 font-semibold disabled:opacity-40 disabled:pointer-events-none"
+      )}
+    >
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          checked ? "bg-zinc-950" : "bg-zinc-500"
+        )}
+      />
+      <span>{checked ? "ON" : "OFF"}</span>
+    </button>
+  );
 }
 
 export function NotificationsTab() {
-  const {
-    notifications,
-    unreadCount,
-    isLoading,
-    markAsRead,
-    markAllAsRead,
-    deleteNotificationItem,
-  } = useNotifications();
+  const { preferences, savePreferences, isLoading, isSaving, saveSuccess } = useUserPreferences();
 
-  const [activeFilter, setActiveFilter] = useState<FilterCategory>("ALL");
+  // Local form state
+  const [form, setForm] = useState({
+    alertsEnabled: true,
+    alertCalendar: true,
+    alertTasks: true,
+    alertFollowups: true,
+    defaultReminderMinutes: 15,
+    alertSound: "calby_bell",
+    alertVolume: 70,
+    quietHoursEnabled: false,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "07:00",
+  });
 
-  // Filter items
-  const filteredNotifications = useMemo(() => {
-    return notifications.filter((n) => {
-      if (activeFilter === "UNREAD") return !n.read;
-      if (activeFilter === "CALENDAR")
-        return n.type.startsWith("CALENDAR_") || n.type.startsWith("EVENT_");
-      if (activeFilter === "AI") return n.type === "AI_PROVIDER_UPDATED";
-      if (activeFilter === "SECURITY") return n.type === "SECURITY";
-      if (activeFilter === "SYSTEM") return n.type === "SYSTEM";
-      return true; // ALL
-    });
-  }, [notifications, activeFilter]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Group items by Today, Yesterday, Older
-  const groupedNotifications = useMemo(() => {
-    const groups: { Today: NotificationItem[]; Yesterday: NotificationItem[]; Older: NotificationItem[] } = {
-      Today: [],
-      Yesterday: [],
-      Older: [],
+  // Synchronize when persistent preferences arrive from backend
+  useEffect(() => {
+    if (preferences) {
+      setForm({
+        alertsEnabled: preferences.alertsEnabled ?? true,
+        alertCalendar: preferences.alertCalendar ?? true,
+        alertTasks: preferences.alertTasks ?? true,
+        alertFollowups: preferences.alertFollowups ?? true,
+        defaultReminderMinutes: preferences.defaultReminderMinutes ?? 15,
+        alertSound: (preferences.alertSound as string) || "calby_bell",
+        alertVolume: preferences.alertVolume ?? 70,
+        quietHoursEnabled: preferences.quietHoursEnabled ?? false,
+        quietHoursStart: preferences.quietHoursStart || "22:00",
+        quietHoursEnd: preferences.quietHoursEnd || "07:00",
+      });
+      setHasLoaded(true);
+    }
+  }, [preferences]);
+
+  // Compute dirty status
+  const isDirty = useMemo(() => {
+    if (!preferences) return false;
+    return (
+      form.alertsEnabled !== (preferences.alertsEnabled ?? true) ||
+      form.alertCalendar !== (preferences.alertCalendar ?? true) ||
+      form.alertTasks !== (preferences.alertTasks ?? true) ||
+      form.alertFollowups !== (preferences.alertFollowups ?? true) ||
+      form.defaultReminderMinutes !== (preferences.defaultReminderMinutes ?? 15) ||
+      form.alertSound !== ((preferences.alertSound as string) || "calby_bell") ||
+      form.alertVolume !== (preferences.alertVolume ?? 70) ||
+      form.quietHoursEnabled !== (preferences.quietHoursEnabled ?? false) ||
+      form.quietHoursStart !== (preferences.quietHoursStart || "22:00") ||
+      form.quietHoursEnd !== (preferences.quietHoursEnd || "07:00")
+    );
+  }, [form, preferences]);
+
+  // Toggle handler
+  const handleToggle = (key: keyof typeof form) => {
+    setForm((prev) => ({ ...prev, [key]: !prev[key] }));
+    setErrorMessage(null);
+  };
+
+  // Field change handler
+  const handleChange = (key: keyof typeof form, value: any) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrorMessage(null);
+  };
+
+  // Discard / Reset handler
+  const handleCancel = () => {
+    if (preferences) {
+      setForm({
+        alertsEnabled: preferences.alertsEnabled ?? true,
+        alertCalendar: preferences.alertCalendar ?? true,
+        alertTasks: preferences.alertTasks ?? true,
+        alertFollowups: preferences.alertFollowups ?? true,
+        defaultReminderMinutes: preferences.defaultReminderMinutes ?? 15,
+        alertSound: (preferences.alertSound as string) || "calby_bell",
+        alertVolume: preferences.alertVolume ?? 70,
+        quietHoursEnabled: preferences.quietHoursEnabled ?? false,
+        quietHoursStart: preferences.quietHoursStart || "22:00",
+        quietHoursEnd: preferences.quietHoursEnd || "07:00",
+      });
+    }
+    setErrorMessage(null);
+  };
+
+  // Save changes handler
+  const handleSave = async () => {
+    if (!preferences) return;
+    setErrorMessage(null);
+
+    const fullUpdated: UserPreferencesData = {
+      ...preferences,
+      alertsEnabled: form.alertsEnabled,
+      alertCalendar: form.alertCalendar,
+      alertTasks: form.alertTasks,
+      alertFollowups: form.alertFollowups,
+      defaultReminderMinutes: form.defaultReminderMinutes,
+      alertSound: form.alertSound,
+      alertVolume: form.alertVolume,
+      quietHoursEnabled: form.quietHoursEnabled,
+      quietHoursStart: form.quietHoursStart,
+      quietHoursEnd: form.quietHoursEnd,
     };
 
-    for (const item of filteredNotifications) {
-      const group = getTimeGroup(item.createdAt);
-      groups[group].push(item);
+    try {
+      await savePreferences(fullUpdated);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to save alert settings. Please try again.");
     }
+  };
 
-    return groups;
-  }, [filteredNotifications]);
-
-  const FILTER_PILLS: Array<{ id: FilterCategory; label: string }> = [
-    { id: "ALL", label: "All" },
-    { id: "UNREAD", label: `Unread ${unreadCount > 0 ? `(${unreadCount})` : ""}` },
-    { id: "CALENDAR", label: "Calendar" },
-    { id: "AI", label: "AI" },
-    { id: "SECURITY", label: "Security" },
-    { id: "SYSTEM", label: "System" },
-  ];
+  if (isLoading && !hasLoaded) {
+    return (
+      <div className="space-y-4 max-w-2xl select-none" role="status">
+        <div className="h-6 w-32 bg-zinc-800/60 rounded animate-pulse" />
+        <div className="h-4 w-64 bg-zinc-800/40 rounded animate-pulse" />
+        <div className="h-20 bg-zinc-900/60 rounded-2xl animate-pulse border border-zinc-800/80 mt-6" />
+        <div className="h-48 bg-zinc-900/60 rounded-2xl animate-pulse border border-zinc-800/80" />
+        <div className="h-28 bg-zinc-900/60 rounded-2xl animate-pulse border border-zinc-800/80" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 max-w-4xl select-none">
+    <div className="space-y-5 max-w-2xl select-none pb-8">
       {/* Page Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            Notifications
-            {unreadCount > 0 && (
-              <span className="rounded-md border border-lime-400/40 bg-lime-400/10 px-2 py-0.5 text-xs font-bold text-lime-400 shadow-[0_0_10px_rgba(163,230,53,0.15)]">
-                {unreadCount} UNREAD
-              </span>
-            )}
-          </h2>
-          <p className="text-xs text-zinc-400 mt-1">
-            View and manage your notification history.
+          <h2 className="text-xl font-bold tracking-tight text-white">Alerts</h2>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Manage how Calby alerts and reminds you.
           </p>
         </div>
 
-        {unreadCount > 0 && (
-          <Button
-            size="sm"
-            onClick={() => markAllAsRead()}
-            className="h-8 rounded-xl bg-lime-400 hover:bg-lime-300 text-zinc-950 font-semibold text-xs px-3.5 inline-flex items-center gap-1.5 shadow-[0_0_12px_rgba(163,230,53,0.25)]"
-          >
-            <CheckCheck className="size-4" />
-            <span>Mark all as read</span>
-          </Button>
-        )}
-      </div>
-
-      {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-zinc-800/80">
-        <Filter className="size-3.5 text-zinc-500 mr-1" />
-        {FILTER_PILLS.map((pill) => {
-          const active = activeFilter === pill.id;
-          return (
-            <button
-              key={pill.id}
-              type="button"
-              onClick={() => setActiveFilter(pill.id)}
-              className={cn(
-                "rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
-                active
-                  ? "border-lime-400 bg-lime-400/10 text-lime-400 shadow-sm"
-                  : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
-              )}
-            >
-              {pill.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Notifications List Grouped by Date */}
-      {isLoading ? (
-        <div className="space-y-4" role="status" aria-label="Loading notifications list">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-16 rounded-2xl bg-zinc-900/50 animate-pulse border border-zinc-800/80" />
-          ))}
+        {/* Live Status Indicator */}
+        <div className="flex items-center gap-2">
+          {saveSuccess ? (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-lime-400 animate-in fade-in duration-150">
+              <Check className="size-3.5" />
+              <span>Saved!</span>
+            </div>
+          ) : isDirty ? (
+            <span className="text-xs font-medium text-amber-400 flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Unsaved changes
+            </span>
+          ) : null}
         </div>
-      ) : filteredNotifications.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-800/90 bg-[#101012] p-10 text-center space-y-3">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-lime-400/10 text-lime-400 border border-lime-400/20">
-            <CheckCheck className="size-6" />
+      </div>
+
+      {/* 1. Global Alerts Toggle Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 text-lime-400 border border-lime-400/20 shadow-sm">
+            <Bell className="size-4" />
           </div>
-          <p className="text-sm font-bold text-white">No notifications found</p>
-          <p className="text-xs text-zinc-400">
-            {activeFilter === "ALL"
-              ? "You're all caught up! No notifications in history."
-              : `No notifications match the filter "${activeFilter}".`}
+          <div>
+            <h3 className="text-sm font-bold text-white leading-tight">Alerts</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Turn on or off all alerts from Calby.
+            </p>
+          </div>
+        </div>
+
+        <PillToggle
+          checked={form.alertsEnabled}
+          onChange={() => handleToggle("alertsEnabled")}
+        />
+      </div>
+
+      {/* 2. Alert Types Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-4 space-y-4 shadow-sm">
+        <div>
+          <h3 className="text-sm font-bold text-white leading-tight">Alert types</h3>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Choose what you want to be alerted for.
           </p>
         </div>
-      ) : (
-        <div className="space-y-6">
-          {(["Today", "Yesterday", "Older"] as const).map((groupName) => {
-            const items = groupedNotifications[groupName];
-            if (items.length === 0) return null;
 
-            return (
-              <div key={groupName} className="space-y-2.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1 flex items-center gap-1.5">
-                  <span>{groupName}</span>
-                </span>
-
-                <div className="rounded-2xl border border-zinc-800/90 bg-[#101012] divide-y divide-zinc-800/60 overflow-hidden shadow-sm">
-                  {items.map((item) => {
-                    const icon = getNotificationIcon(item.type);
-                    return (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          "flex items-start justify-between gap-4 p-4 transition-colors group border-l-2",
-                          !item.read
-                            ? "border-l-lime-400 bg-lime-400/5 hover:bg-lime-400/10"
-                            : "border-l-transparent bg-transparent hover:bg-zinc-900/50",
-                        )}
-                      >
-                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                          <div className={cn(
-                            "flex size-9 shrink-0 items-center justify-center rounded-xl border shadow-sm mt-0.5",
-                            !item.read ? "bg-lime-400/10 border-lime-400/30" : "bg-zinc-900 border-zinc-800"
-                          )}>
-                            {icon}
-                          </div>
-
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex items-center gap-2">
-                              <p
-                                className={cn(
-                                  "text-sm leading-tight truncate",
-                                  !item.read
-                                    ? "font-bold text-white"
-                                    : "font-semibold text-zinc-300",
-                                )}
-                              >
-                                {item.title}
-                              </p>
-
-                              {!item.read && (
-                                <span className="flex items-center gap-1 shrink-0">
-                                  <span className="text-[9px] font-bold uppercase tracking-wider text-lime-400 bg-lime-400/10 px-1.5 py-0.5 rounded border border-lime-400/30">
-                                    UNREAD
-                                  </span>
-                                  <span className="size-2 rounded-full bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.9)]" />
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-xs text-zinc-400 leading-relaxed">
-                              {item.message}
-                            </p>
-
-                            <p className="text-[11px] text-zinc-500 font-medium">
-                              {formatFormattedTime(item.createdAt)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Row Actions */}
-                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                          {!item.read && (
-                            <button
-                              type="button"
-                              onClick={() => markAsRead(item.id)}
-                              className="flex size-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-lime-400/10 hover:text-lime-400 transition-colors"
-                              title="Mark as read"
-                            >
-                              <Check className="size-4" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => deleteNotificationItem(item.id)}
-                            className="flex size-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                            title="Delete notification"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+        <div className="divide-y divide-zinc-800/60 pt-1">
+          {/* Calendar reminders */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-3.5">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 text-lime-400 border border-lime-400/20 shadow-sm">
+                <Calendar className="size-4" />
               </div>
-            );
-          })}
+              <div>
+                <h4 className="text-xs font-bold text-white">Calendar reminders</h4>
+                <p className="text-[11px] text-zinc-400">
+                  Get alerts for upcoming events and meetings.
+                </p>
+              </div>
+            </div>
+
+            <PillToggle
+              checked={form.alertCalendar && form.alertsEnabled}
+              disabled={!form.alertsEnabled}
+              onChange={() => handleToggle("alertCalendar")}
+            />
+          </div>
+
+          {/* Task reminders */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-3.5">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 text-lime-400 border border-lime-400/20 shadow-sm">
+                <CheckSquare className="size-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">Task reminders</h4>
+                <p className="text-[11px] text-zinc-400">
+                  Get alerts for tasks and to-dos.
+                </p>
+              </div>
+            </div>
+
+            <PillToggle
+              checked={form.alertTasks && form.alertsEnabled}
+              disabled={!form.alertsEnabled}
+              onChange={() => handleToggle("alertTasks")}
+            />
+          </div>
+
+          {/* Follow-ups */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-3.5">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-lime-400/10 text-lime-400 border border-lime-400/20 shadow-sm">
+                <Bell className="size-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">Follow-ups</h4>
+                <p className="text-[11px] text-zinc-400">
+                  Get alerts for follow-ups and important messages.
+                </p>
+              </div>
+            </div>
+
+            <PillToggle
+              checked={form.alertFollowups && form.alertsEnabled}
+              disabled={!form.alertsEnabled}
+              onChange={() => handleToggle("alertFollowups")}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Default Reminder Time Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-4 space-y-3 shadow-sm">
+        <div>
+          <h3 className="text-sm font-bold text-white leading-tight">Default reminder time</h3>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Set the default time for reminders when creating events or tasks.
+          </p>
+        </div>
+
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400">
+            <Clock className="size-4" />
+          </div>
+          <select
+            value={form.defaultReminderMinutes}
+            onChange={(e) => handleChange("defaultReminderMinutes", Number(e.target.value))}
+            className="w-full rounded-xl border border-zinc-800 bg-[#14151B] pl-10 pr-4 py-2.5 text-xs text-white focus:border-lime-400/60 focus:outline-none focus:ring-1 focus:ring-lime-400/30 cursor-pointer appearance-none"
+          >
+            {REMINDER_TIME_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-zinc-400">
+            <span className="text-[10px]">▼</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Alert Sound Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-4 space-y-4 shadow-sm">
+        <div>
+          <h3 className="text-sm font-bold text-white leading-tight">Alert sound</h3>
+          <p className="text-xs text-zinc-400 mt-0.5">Choose a ringtone for your alerts.</p>
+        </div>
+
+        {/* Ringtone Dropdown & Preview Button */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-lime-400">
+              <Music className="size-4" />
+            </div>
+            <select
+              value={form.alertSound}
+              onChange={(e) => handleChange("alertSound", e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-[#14151B] pl-10 pr-4 py-2.5 text-xs text-white focus:border-lime-400/60 focus:outline-none focus:ring-1 focus:ring-lime-400/30 cursor-pointer appearance-none"
+            >
+              {RINGTONE_OPTIONS.map((rt) => (
+                <option key={rt.id} value={rt.id}>
+                  {rt.label}
+                </option>
+              ))}
+            </select>
+            <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-zinc-400">
+              <span className="text-[10px]">▼</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => previewRingtone(form.alertSound, form.alertVolume)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white hover:bg-zinc-800 hover:text-lime-400 text-xs font-bold transition-all shadow-sm cursor-pointer shrink-0"
+          >
+            <Play className="size-3 fill-lime-400 text-lime-400" />
+            <span>Preview</span>
+          </button>
+        </div>
+
+        {/* Volume Slider */}
+        <div className="flex items-center gap-3 pt-1">
+          <div className="flex items-center gap-2 text-zinc-400 shrink-0">
+            <Volume2 className="size-4 text-zinc-400" />
+            <span className="text-xs font-medium text-zinc-300">Volume</span>
+          </div>
+
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={form.alertVolume}
+            onChange={(e) => handleChange("alertVolume", Number(e.target.value))}
+            className="flex-1 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-lime-400"
+          />
+
+          <span className="text-xs font-mono text-zinc-400 w-10 text-right font-semibold">
+            {form.alertVolume}%
+          </span>
+        </div>
+      </div>
+
+      {/* 5. Quiet Hours Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-4 space-y-3.5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-white leading-tight">Quiet hours</h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Pause alerts during selected hours.
+            </p>
+          </div>
+
+          <PillToggle
+            checked={form.quietHoursEnabled}
+            onChange={() => handleToggle("quietHoursEnabled")}
+          />
+        </div>
+
+        {/* Time Inputs */}
+        <div className={cn("grid grid-cols-[1fr_auto_1fr] items-center gap-3 pt-1", !form.quietHoursEnabled && "opacity-40 pointer-events-none")}>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+              <Moon className="size-3.5" />
+            </div>
+            <input
+              type="time"
+              value={form.quietHoursStart}
+              onChange={(e) => handleChange("quietHoursStart", e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-[#14151B] pl-9 pr-3 py-2 text-xs text-white focus:border-lime-400/60 focus:outline-none focus:ring-1 focus:ring-lime-400/30 cursor-pointer"
+            />
+          </div>
+
+          <div className="text-zinc-500 flex items-center justify-center">
+            <ArrowRight className="size-3.5" />
+          </div>
+
+          <div>
+            <input
+              type="time"
+              value={form.quietHoursEnd}
+              onChange={(e) => handleChange("quietHoursEnd", e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-[#14151B] px-3 py-2 text-xs text-white focus:border-lime-400/60 focus:outline-none focus:ring-1 focus:ring-lime-400/30 cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 6. Bottom Info Card */}
+      <div className="rounded-2xl border border-zinc-800/80 bg-[#101014] p-3.5 flex items-center gap-3 shadow-sm">
+        <Info className="size-4 text-lime-400 shrink-0" />
+        <p className="text-xs text-zinc-400">
+          Alerts will still appear for important system messages, even during quiet hours.
+        </p>
+      </div>
+
+      {/* 7. Error Message (if any) */}
+      {errorMessage && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+          {errorMessage}
         </div>
       )}
+
+      {/* 8. Save Changes Action Footer Bar */}
+      <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
+        <div>
+          {saveSuccess ? (
+            <span className="text-xs font-semibold text-lime-400 flex items-center gap-1.5 animate-in fade-in">
+              <Check className="size-3.5" />
+              <span>Alert preferences saved successfully!</span>
+            </span>
+          ) : isDirty ? (
+            <span className="text-xs font-medium text-amber-400 flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>Unsaved changes</span>
+            </span>
+          ) : (
+            <span className="text-[11px] text-zinc-500 font-medium">
+              Settings persist across all your devices
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-white px-3 py-1.5 rounded-xl hover:bg-zinc-800/60 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <RotateCcw className="size-3" />
+              <span>Cancel</span>
+            </button>
+          )}
+
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={!isDirty || isSaving}
+            className={cn(
+              "h-8 rounded-xl font-bold text-xs px-5 shadow-sm transition-all cursor-pointer",
+              isDirty
+                ? "bg-lime-400 hover:bg-lime-300 text-zinc-950 shadow-[0_0_12px_rgba(163,230,53,0.3)]"
+                : "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/60 opacity-60"
+            )}
+          >
+            {isSaving ? (
+              <span className="flex items-center gap-1.5">
+                <LoaderCircle className="size-3.5 animate-spin" />
+                <span>Saving...</span>
+              </span>
+            ) : (
+              <span>Save Changes</span>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
+
+// Export alias for clean nomenclature
+export const AlertsTab = NotificationsTab;

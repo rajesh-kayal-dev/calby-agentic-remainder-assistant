@@ -9,6 +9,8 @@ import {
   pauseReminder,
   resumeReminder,
   deleteReminder,
+  snoozeReminder,
+  completeReminder,
 } from "../services/reminder.service.js";
 import { defaultChannelRegistry } from "../services/notifications/channel-registry.js";
 import { getUserTelegramConnection } from "../services/notifications/telegram-connection.service.js";
@@ -188,6 +190,37 @@ reminderRoutes.patch("/:id/resume", async (req, res) => {
   }
 });
 
+reminderRoutes.post("/:id/snooze", async (req, res) => {
+  try {
+    const snoozeMinutes = typeof req.body?.minutes === "number" ? req.body.minutes : 10;
+    const reminder = await snoozeReminder(
+      req.authContext!.authUserId,
+      req.params.id,
+      snoozeMinutes,
+    );
+    if (!reminder) {
+      res.status(404).json({ error: "Reminder not found" });
+      return;
+    }
+    res.json({ success: true, reminder });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to snooze reminder" });
+  }
+});
+
+reminderRoutes.post("/:id/complete", async (req, res) => {
+  try {
+    const reminder = await completeReminder(req.authContext!.authUserId, req.params.id);
+    if (!reminder) {
+      res.status(404).json({ error: "Reminder not found" });
+      return;
+    }
+    res.json({ success: true, reminder });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to complete reminder" });
+  }
+});
+
 reminderRoutes.delete("/:id", async (req, res) => {
   try {
     const success = await deleteReminder(req.authContext!.authUserId, req.params.id);
@@ -196,3 +229,4 @@ reminderRoutes.delete("/:id", async (req, res) => {
     res.status(500).json({ error: error?.message || "Failed to delete reminder" });
   }
 });
+

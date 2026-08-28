@@ -109,6 +109,28 @@ export async function deleteReminderApi(
   });
 }
 
+export async function snoozeReminderApi(
+  token: string,
+  id: string,
+  minutes: number = 10,
+): Promise<{ success: boolean; reminder: Reminder }> {
+  return apiFetch<{ success: boolean; reminder: Reminder }>(`/api/reminders/${id}/snooze`, {
+    method: "POST",
+    token,
+    body: { minutes },
+  });
+}
+
+export async function completeReminderApi(
+  token: string,
+  id: string,
+): Promise<{ success: boolean; reminder: Reminder }> {
+  return apiFetch<{ success: boolean; reminder: Reminder }>(`/api/reminders/${id}/complete`, {
+    method: "POST",
+    token,
+  });
+}
+
 export async function fetchReminderChannelsApi(
   token: string,
 ): Promise<{ channels: { id: string; name: string; enabled: boolean; connected?: boolean }[] }> {
@@ -117,3 +139,4 @@ export async function fetchReminderChannelsApi(
     { token },
   );
 }
+

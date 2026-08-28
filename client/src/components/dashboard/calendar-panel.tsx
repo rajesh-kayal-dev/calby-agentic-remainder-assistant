@@ -4,15 +4,11 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Clock,
   GripVertical,
   MapPin,
   Maximize2,
   Minimize2,
-  PanelRightClose,
-  PanelRightOpen,
   RefreshCw,
   Sparkles,
   Users,
@@ -25,75 +21,7 @@ import { cn } from "@/lib/utils";
 import { fetchCalendarConnection } from "@/lib/connections";
 import { ConnectionInfo } from "@/lib/types";
 import { CalbyTooltip } from "../ui/calby-tooltip";
-
-type CalendarEvent = {
-  id: string;
-  title: string;
-  startTime: string; // "10:00"
-  endTime: string; // "10:30"
-  duration: string; // "30 min"
-  category: "work" | "meeting" | "personal";
-  date: string; // "YYYY-MM-DD"
-  location?: string;
-  attendees?: string[];
-  description?: string;
-  source?: string;
-};
-
-const DEFAULT_SCHEDULE: CalendarEvent[] = [
-  {
-    id: "evt-1",
-    title: "Daily Engineering Sync & Standup",
-    startTime: "09:00",
-    endTime: "09:30",
-    duration: "30 min",
-    category: "meeting",
-    date: new Date().toISOString().split("T")[0],
-    attendees: ["team@calby.ai", "lead@calby.ai", "marcus@calby.ai"],
-    location: "Google Meet",
-    description: "Daily engineering progress, sprint blocker removal, and roadmap alignment.",
-    source: "Google Calendar",
-  },
-  {
-    id: "evt-2",
-    title: "Enterprise Client Architecture & Security Review",
-    startTime: "11:30",
-    endTime: "12:30",
-    duration: "1 hour",
-    category: "work",
-    date: new Date().toISOString().split("T")[0],
-    attendees: ["sarah@enterprise.com", "security@calby.ai"],
-    location: "Google Meet / Security Room",
-    description: "Review Google Calendar OAuth token encryption, database schemas, and AI access policies.",
-    source: "Google Calendar",
-  },
-  {
-    id: "evt-3",
-    title: "Q3 AI Orchestration Strategy & Planning",
-    startTime: "14:00",
-    endTime: "15:00",
-    duration: "1 hour",
-    category: "meeting",
-    date: new Date().toISOString().split("T")[0],
-    attendees: ["execs@calby.ai", "ai-team@calby.ai"],
-    location: "Executive Board & Meet",
-    description: "Multi-model routing, latency minimization, and calendar agent autonomy benchmarks.",
-    source: "Google Calendar",
-  },
-  {
-    id: "evt-4",
-    title: "Product UX Jam & Design System Polish",
-    startTime: "16:30",
-    endTime: "17:15",
-    duration: "45 min",
-    category: "personal",
-    date: new Date().toISOString().split("T")[0],
-    attendees: ["design@calby.ai"],
-    location: "Figma Room",
-    description: "Dark SaaS aesthetics, micro-interactions, and responsive calendar grid optimization.",
-    source: "Google Calendar",
-  },
-];
+import { CalendarEventItem, fetchCalendarEvents } from "@/lib/calendar";
 
 const HOURS = [
   "08:00",
@@ -110,7 +38,7 @@ const HOURS = [
 ];
 
 const categoryStyles: Record<
-  CalendarEvent["category"],
+  string,
   {
     card: string;
     tag: string;
@@ -139,6 +67,20 @@ const categoryStyles: Record<
     dot: "bg-amber-400",
     border: "border-l-amber-400",
     text: "text-amber-300",
+  },
+  focus: {
+    card: "bg-purple-500/10 border-purple-500/25 hover:bg-purple-500/15 text-purple-200",
+    tag: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    dot: "bg-purple-400",
+    border: "border-l-purple-400",
+    text: "text-purple-300",
+  },
+  other: {
+    card: "bg-zinc-700/10 border-zinc-600/25 hover:bg-zinc-700/15 text-zinc-200",
+    tag: "bg-zinc-700/20 text-zinc-300 border-zinc-600/30",
+    dot: "bg-zinc-400",
+    border: "border-l-zinc-400",
+    text: "text-zinc-300",
   },
 };
 
@@ -170,23 +112,45 @@ export function CalendarPanel({
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionInfo | null>(null);
-  const [loadingConnection, setLoadingConnection] = useState(false);
+  const [events, setEvents] = useState<CalendarEventItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
 
   const checkConnection = useCallback(async () => {
-    setLoadingConnection(true);
     try {
       const conn = await fetchCalendarConnection(sessionToken);
       setConnection(conn);
     } catch {
       // ignore
-    } finally {
-      setLoadingConnection(false);
     }
   }, [sessionToken]);
 
+  const loadEvents = useCallback(async () => {
+    if (!sessionToken) return;
+    setLoading(true);
+    try {
+      const start = new Date(selectedDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(selectedDate);
+      end.setHours(23, 59, 59, 999);
+
+      const res = await fetchCalendarEvents(sessionToken, {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      });
+      if (res.success) {
+        setEvents(res.events);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionToken, selectedDate]);
+
   useEffect(() => {
     checkConnection();
-  }, [checkConnection]);
+    loadEvents();
+  }, [checkConnection, loadEvents]);
 
   // Format month and year
   const monthYearLabel = useMemo(() => {
@@ -207,10 +171,8 @@ export function CalendarPanel({
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(startOfWeek);
       d.setDate(startOfWeek.getDate() + i);
-      const isToday =
-        d.toDateString() === new Date().toDateString();
-      const isSelected =
-        d.toDateString() === selectedDate.toDateString();
+      const isToday = d.toDateString() === new Date().toDateString();
+      const isSelected = d.toDateString() === selectedDate.toDateString();
 
       return {
         date: d,
@@ -246,8 +208,11 @@ export function CalendarPanel({
   const selectedDateStr = selectedDate.toISOString().split("T")[0];
 
   const currentEvents = useMemo(() => {
-    return DEFAULT_SCHEDULE.filter((evt) => evt.date === selectedDateStr);
-  }, [selectedDateStr]);
+    return events.filter((evt) => {
+      const evtDate = new Date(evt.start).toISOString().split("T")[0];
+      return evtDate === selectedDateStr;
+    });
+  }, [events, selectedDateStr]);
 
   const selectedEvent = useMemo(() => {
     return currentEvents.find((evt) => evt.id === selectedEventId) ?? null;
@@ -305,7 +270,7 @@ export function CalendarPanel({
           </CalbyTooltip>
 
           <span className="text-xs font-semibold uppercase tracking-wider text-white truncate">
-            Calendar Workspace
+            Calendar
           </span>
           {connection?.status === "connected" && (
             <span className="inline-flex items-center gap-1 rounded-full bg-lime-400/10 border border-lime-400/25 px-1.5 py-0.5 text-[9px] font-medium text-lime-400 shrink-0">
@@ -319,8 +284,18 @@ export function CalendarPanel({
           </span>
         </div>
 
-        {/* Action Controls: Expand / Fullscreen Toggle Only (No X button) */}
+        {/* Action Controls */}
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={loadEvents}
+            disabled={loading}
+            className="flex size-8 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin text-lime-400")} />
+          </button>
+
           {onToggleFullscreen && !isMobileDrawer && (
             <CalbyTooltip content={isFullscreen ? "Exit Fullscreen" : "Expand Calendar"} side="bottom">
               <button
@@ -422,10 +397,22 @@ export function CalendarPanel({
           {/* Timeline View */}
           <div className="relative space-y-3">
             {HOURS.map((hour) => {
-              // Find matching event
-              const matchingEvent = currentEvents.find(
-                (evt) => evt.startTime.startsWith(hour.slice(0, 2))
-              );
+              const hourNum = parseInt(hour.slice(0, 2), 10);
+              const matchingEvent = currentEvents.find((evt) => {
+                const evtHour = new Date(evt.start).getHours();
+                return evtHour === hourNum;
+              });
+
+              const categoryStyle = matchingEvent
+                ? categoryStyles[matchingEvent.category] || categoryStyles.work
+                : null;
+
+              const startTimeFormatted = matchingEvent
+                ? new Date(matchingEvent.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : "";
+              const endTimeFormatted = matchingEvent
+                ? new Date(matchingEvent.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : "";
 
               return (
                 <div key={hour} className="group relative flex items-start gap-3">
@@ -436,7 +423,7 @@ export function CalendarPanel({
 
                   {/* Slot & Event Card Container */}
                   <div className="relative flex-1 min-w-0 border-t border-zinc-800/50 pt-1.5 min-h-[36px]">
-                    {matchingEvent ? (
+                    {matchingEvent && categoryStyle ? (
                       <div
                         onClick={() =>
                           setSelectedEventId((prev) =>
@@ -445,8 +432,8 @@ export function CalendarPanel({
                         }
                         className={cn(
                           "cursor-pointer rounded-xl border p-3 text-xs transition-all duration-150 shadow-sm border-l-4",
-                          categoryStyles[matchingEvent.category].card,
-                          categoryStyles[matchingEvent.category].border,
+                          categoryStyle.card,
+                          categoryStyle.border,
                           selectedEventId === matchingEvent.id &&
                             "ring-2 ring-lime-400/60 scale-[1.01] shadow-[0_0_15px_rgba(163,230,53,0.15)]"
                         )}
@@ -458,87 +445,44 @@ export function CalendarPanel({
                           <span
                             className={cn(
                               "rounded-md px-1.5 py-0.5 text-[9px] font-medium border shrink-0",
-                              categoryStyles[matchingEvent.category].tag
+                              categoryStyle.tag
                             )}
                           >
-                            {matchingEvent.duration}
+                            {matchingEvent.category}
                           </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-400">
-                          <span className="flex items-center gap-1 font-mono">
-                            <Clock className="size-3 text-zinc-500 shrink-0" />
-                            {matchingEvent.startTime} – {matchingEvent.endTime}
+                        <div className="flex items-center gap-3 text-[11px] text-zinc-400 font-mono mb-2">
+                          <span className="flex items-center gap-1">
+                            <Clock className="size-3 text-zinc-500" />
+                            {startTimeFormatted} - {endTimeFormatted}
                           </span>
                           {matchingEvent.location && (
-                            <span className="flex items-center gap-1 text-zinc-300">
-                              <Video className="size-3 text-zinc-500 shrink-0" />
-                              <span className="truncate max-w-[200px]">{matchingEvent.location}</span>
+                            <span className="flex items-center gap-1 truncate">
+                              <MapPin className="size-3 text-zinc-500 shrink-0" />
+                              <span className="truncate">{matchingEvent.location}</span>
                             </span>
                           )}
                         </div>
 
-                        {/* Rich Details on Selection */}
-                        {selectedEventId === matchingEvent.id && (
-                          <div className="mt-3 pt-2.5 border-t border-white/10 space-y-2 text-[11px] animate-in fade-in duration-150">
-                            {matchingEvent.description && (
-                              <p className="text-zinc-300 leading-relaxed font-light">
-                                {matchingEvent.description}
-                              </p>
-                            )}
-                            {matchingEvent.attendees && (
-                              <div className="flex items-center gap-1.5 text-zinc-400 text-[10px]">
-                                <Users className="size-3 text-zinc-500 shrink-0" />
-                                <span className="truncate">
-                                  {matchingEvent.attendees.join(", ")}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                        {matchingEvent.description && (
+                          <p className="text-[11px] text-zinc-300/90 leading-relaxed line-clamp-2">
+                            {matchingEvent.description}
+                          </p>
                         )}
                       </div>
                     ) : (
-                      <div className="h-5 w-full rounded hover:bg-zinc-800/20 transition-colors" />
+                      <div className="h-6 rounded border border-dashed border-zinc-800/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center px-2 text-[10px] text-zinc-600">
+                        Open Slot
+                      </div>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-
-          {/* Empty Day State */}
-          {currentEvents.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/30 p-6 text-center text-zinc-500 space-y-1">
-              <CalendarIcon className="size-6 mx-auto text-zinc-600 mb-2" />
-              <p className="text-xs font-medium text-zinc-400">No events scheduled</p>
-              <p className="text-[11px] text-zinc-600">
-                Ask Calby to schedule a meeting for this day.
-              </p>
-            </div>
-          )}
         </div>
       </ScrollArea>
-
-      {/* Calendar Bottom Sync Bar */}
-      <div className="border-t border-zinc-800/80 p-3 bg-[#0C0C0E] flex items-center justify-between text-xs text-zinc-400">
-        <div className="flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-lime-400" />
-          <span className="text-[11px] font-medium text-zinc-300">
-            Google Calendar Sync
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => checkConnection()}
-          className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors rounded-md"
-          title="Refresh calendar sync"
-          aria-label="Refresh calendar sync"
-        >
-          <RefreshCw
-            className={cn("size-3.5", loadingConnection && "animate-spin text-lime-400")}
-          />
-        </button>
-      </div>
     </div>
   );
 }
