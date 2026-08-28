@@ -32,60 +32,22 @@ import {
   TelegramIcon,
 } from "@/components/ui/integration-icons";
 
+const AVATAR_COLORS = [
+  "bg-[#a3e635] text-black",
+  "bg-[#b4c6ff] text-black",
+  "bg-[#93c5fd] text-black",
+  "bg-[#fcd34d] text-black",
+  "bg-[#f472b6] text-black",
+  "bg-[#c084fc] text-black",
+];
+
 interface ContactsTabProps {
   sessionToken: string;
 }
 
-const DEFAULT_MOCK_CONTACTS: Contact[] = [
-  {
-    id: "c1",
-    name: "Rahul Sharma",
-    relationship: "Friend",
-    phoneNumber: "+91 98765 43210",
-    email: "rahul@gmail.com",
-    preferredChannel: "WhatsApp",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "c2",
-    name: "Amit Kumar",
-    relationship: "Client",
-    email: "amit@company.com",
-    preferredChannel: "Email",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "c3",
-    name: "Priya Verma",
-    relationship: "Colleague",
-    phoneNumber: "+91 91234 56789",
-    telegramId: "@priya_verma",
-    preferredChannel: "Telegram",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "c4",
-    name: "Sanjay Mehta",
-    relationship: "Business Partner",
-    email: "sanjay.mehta@business.com",
-    phoneNumber: "+91 99887 66554",
-    preferredChannel: "Email",
-    created_at: new Date().toISOString(),
-  },
-];
-
-const AVATAR_COLORS = [
-  "bg-[#a3e635] text-black", // Rahul (Green)
-  "bg-[#b4c6ff] text-black", // Amit (Periwinkle)
-  "bg-[#93c5fd] text-black", // Priya (Blue)
-  "bg-[#fcd34d] text-black", // Sanjay (Amber)
-  "bg-[#f472b6] text-black", // Pink
-  "bg-[#c084fc] text-black", // Purple
-];
-
 export function ContactsTab({ sessionToken }: ContactsTabProps) {
-  const [contacts, setContacts] = useState<Contact[]>(DEFAULT_MOCK_CONTACTS);
-  const [loading, setLoading] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All Contacts");
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
@@ -108,13 +70,14 @@ export function ContactsTab({ sessionToken }: ContactsTabProps) {
 
   const loadContacts = async () => {
     if (!sessionToken) return;
+    setLoading(true);
     try {
       const res = await fetchContactsApi(sessionToken);
-      if (res.contacts && res.contacts.length > 0) {
-        setContacts(res.contacts);
-      }
+      setContacts(res.contacts || []);
     } catch {
-      // Keep default mock contacts if offline or server fallback
+      setContacts([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -139,8 +102,8 @@ export function ContactsTab({ sessionToken }: ContactsTabProps) {
     setName(c.name);
     setRelationship(c.relationship || "Friend");
     setEmail(c.email || "");
-    setPhoneNumber(c.phoneNumber || "");
-    setTelegramId(c.telegramId || "");
+    setPhoneNumber(c.phoneNumber || (c as any).phone_number || "");
+    setTelegramId(c.telegramId || (c as any).telegram_id || "");
     setPreferredChannel(c.preferredChannel || "WhatsApp");
     setError(null);
     setActiveMenuContactId(null);
@@ -153,8 +116,9 @@ export function ContactsTab({ sessionToken }: ContactsTabProps) {
     if (sessionToken) {
       try {
         await deleteContactApi(sessionToken, contactId);
+        await loadContacts();
       } catch {
-        // Handled gracefully
+        loadContacts();
       }
     }
   };
@@ -180,34 +144,11 @@ export function ContactsTab({ sessionToken }: ContactsTabProps) {
 
     try {
       if (editingContact) {
-        // Local state update
-        setContacts((prev) =>
-          prev.map((item) =>
-            item.id === editingContact.id ? { ...item, ...payload } : item
-          )
-        );
-        if (sessionToken) {
-          try {
-            await updateContactApi(sessionToken, editingContact.id, payload);
-          } catch {
-            // Handled
-          }
-        }
+        await updateContactApi(sessionToken, editingContact.id, payload);
       } else {
-        const newContact: Contact = {
-          id: `c_${Date.now()}`,
-          ...payload,
-          created_at: new Date().toISOString(),
-        };
-        setContacts((prev) => [newContact, ...prev]);
-        if (sessionToken) {
-          try {
-            await createContactApi(sessionToken, payload);
-          } catch {
-            // Handled
-          }
-        }
+        await createContactApi(sessionToken, payload);
       }
+      await loadContacts();
       setModalOpen(false);
     } catch (err: any) {
       setError(err?.message || "Failed to save contact");

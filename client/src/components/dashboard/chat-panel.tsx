@@ -53,7 +53,6 @@ import { MarkdownMessage } from "./markdown-message";
 import { CalendarPanel } from "./calendar-panel";
 import { CalendarWorkspace } from "./calendar/calendar-workspace";
 import { RemindersPanel } from "./reminders/reminders-panel";
-import { ContactsPanel } from "./contacts/contacts-panel";
 import { TasksPanel } from "./tasks/tasks-panel";
 import { MoneyPanel } from "./money/money-panel";
 import { DashboardAmbientBackground } from "./dashboard-ambient-background";
@@ -595,15 +594,16 @@ function ChatPanel({
   const [progress, setProgress] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "contacts" | "tasks" | "money">(() => {
+  const [activeView, setActiveView] = useState<"assistant" | "calendar" | "settings" | "reminders" | "tasks" | "money">(() => {
     if (typeof window !== "undefined") {
       const savedView = localStorage.getItem("calby_active_view");
-      if (savedView && ["assistant", "calendar", "settings", "reminders", "contacts", "tasks", "money"].includes(savedView)) {
+      if (savedView && ["assistant", "calendar", "settings", "reminders", "tasks", "money"].includes(savedView)) {
         return savedView as any;
       }
     }
-    return initialView;
+    return initialView === ("contacts" as any) ? "settings" : initialView;
   });
+
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>(() => {
     if (typeof window !== "undefined") {
       const savedTab = localStorage.getItem("calby_settings_tab");
@@ -611,6 +611,13 @@ function ChatPanel({
     }
     return "connectors";
   });
+
+  useEffect(() => {
+    if (activeView === ("contacts" as any)) {
+      setActiveView("settings");
+      setSettingsTab("contacts");
+    }
+  }, [activeView]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1179,28 +1186,6 @@ function ChatPanel({
             <button
               type="button"
               onClick={() => {
-                setActiveView("contacts");
-                setSidebarOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-150 border",
-                activeView === "contacts"
-                  ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
-                  : "border-transparent text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
-              )}
-            >
-              <Users
-                className={cn(
-                  "size-4",
-                  activeView === "contacts" ? "text-lime-400" : "text-zinc-400"
-                )}
-              />
-              <span>Contacts Directory</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
                 setActiveView("money");
                 setSidebarOpen(false);
               }}
@@ -1441,8 +1426,6 @@ function ChatPanel({
           <RemindersPanel sessionToken={sessionToken} />
         ) : activeView === "tasks" ? (
           <TasksPanel sessionToken={sessionToken} />
-        ) : activeView === "contacts" ? (
-          <ContactsPanel sessionToken={sessionToken} />
         ) : activeView === "money" ? (
           <MoneyPanel sessionToken={sessionToken} />
         ) : activeView === "calendar" ? (
