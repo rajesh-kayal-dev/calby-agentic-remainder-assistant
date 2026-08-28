@@ -60,3 +60,10 @@ export async function deleteNotificationApi(
     token,
   });
 }
+
+export async function clearAllNotificationsApi(token: string): Promise<{ unreadCount: number }> {
+  return await apiFetch<{ success: boolean; unreadCount: number }>("/api/notifications", {
+    method: "DELETE",
+    token,
+  });
+}

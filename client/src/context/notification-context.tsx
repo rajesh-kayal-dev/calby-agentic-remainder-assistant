@@ -7,6 +7,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
   deleteNotificationApi,
+  clearAllNotificationsApi,
   NotificationItem,
 } from "@/lib/notifications";
 
@@ -19,6 +20,7 @@ interface NotificationContextType {
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   deleteNotificationItem: (id: string) => Promise<void>;
+  clearAllNotifications: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -111,6 +113,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   };
 
+  const clearAllNotifications = async () => {
+    if (!sessionToken) return;
+    setNotifications([]);
+    setUnreadCount(0);
+
+    try {
+      await clearAllNotificationsApi(sessionToken);
+    } catch {
+      loadNotifications();
+    }
+  };
+
   return (
     <NotificationContext.Provider
       value={{
@@ -122,6 +136,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         markAsRead,
         markAllAsRead,
         deleteNotificationItem,
+        clearAllNotifications,
       }}
     >
       {children}

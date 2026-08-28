@@ -6,11 +6,22 @@ import {
   markAsRead,
   markAllAsRead,
   deleteNotification,
+  deleteAllNotifications,
 } from "../repositories/notifications.repository.js";
 
 export const notificationRouter: Router = Router();
 
 notificationRouter.use(requireSession);
+
+notificationRouter.delete("/", async (req, res) => {
+  try {
+    const authUserId = req.authContext!.authUserId;
+    await deleteAllNotifications(authUserId);
+    res.json({ success: true, unreadCount: 0 });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to clear notifications", success: false });
+  }
+});
 
 notificationRouter.get("/", async (req, res) => {
   try {

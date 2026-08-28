@@ -84,6 +84,18 @@ export async function deleteNotification(
   return (result.rowCount ?? 0) > 0;
 }
 
+export async function deleteAllNotifications(authUserId: string): Promise<boolean> {
+  const result = await getPool().query(
+    `
+    DELETE FROM notifications
+    WHERE auth_user_id = $1
+    `,
+    [authUserId],
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function createNotification(input: {
   authUserId: string;
   type: string;

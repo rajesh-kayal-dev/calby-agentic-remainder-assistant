@@ -10,14 +10,14 @@ import {
   Sparkles,
   AlertCircle,
   RefreshCcw,
-  ChevronRight,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNotifications } from "@/context/notification-context";
 import { NotificationItem, NotificationType } from "@/lib/notifications";
 
 interface NotificationBellPopoverProps {
-  onOpenFullPage: () => void;
+  onOpenFullPage?: () => void;
 }
 
 function getNotificationIcon(type: NotificationType) {
@@ -67,6 +67,8 @@ export function NotificationBellPopover({ onOpenFullPage }: NotificationBellPopo
     refetchNotifications,
     markAsRead,
     markAllAsRead,
+    deleteNotificationItem,
+    clearAllNotifications,
   } = useNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -147,16 +149,31 @@ export function NotificationBellPopover({ onOpenFullPage }: NotificationBellPopo
               )}
             </div>
 
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={() => markAllAsRead()}
-                className="inline-flex items-center gap-1 text-[11px] font-semibold text-lime-400 hover:text-lime-300 transition-colors"
-              >
-                <CheckCheck className="size-3.5" />
-                <span>Mark all as read</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2.5">
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markAllAsRead()}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-lime-400 hover:text-lime-300 transition-colors cursor-pointer"
+                  title="Mark all as read"
+                >
+                  <CheckCheck className="size-3.5" />
+                  <span>Mark all as read</span>
+                </button>
+              )}
+
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clearAllNotifications()}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
+                  title="Clear all notifications"
+                >
+                  <Trash2 className="size-3" />
+                  <span>Clear all</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Popover Body Content */}
@@ -253,25 +270,23 @@ export function NotificationBellPopover({ onOpenFullPage }: NotificationBellPopo
                         {formatRelativeTime(item.createdAt)}
                       </p>
                     </div>
+
+                    {/* Single Item Delete Trash Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteNotificationItem(item.id);
+                      }}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-all opacity-0 group-hover:opacity-100 cursor-pointer self-center"
+                      title="Delete notification"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
                   </div>
                 );
               })
             )}
-          </div>
-
-          {/* Popover Footer */}
-          <div className="border-t border-zinc-800/80 p-2 bg-[#121214] text-center">
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onOpenFullPage();
-              }}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-lime-400 hover:bg-lime-400/10 transition-colors cursor-pointer"
-            >
-              <span>View all notifications</span>
-              <ChevronRight className="size-3.5 text-lime-400" />
-            </button>
           </div>
         </div>
       )}
