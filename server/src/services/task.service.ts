@@ -132,7 +132,22 @@ export async function getTaskList(
 }
 
 export async function listTaskLists(authUserId: string): Promise<TaskList[]> {
-  return listTaskListsFromDb(authUserId);
+  let lists = await listTaskListsFromDb(authUserId);
+  if (lists.length === 0) {
+    const defaults = [
+      { name: "Work", desc: "Work & professional tasks" },
+      { name: "Personal", desc: "Personal & daily tasks" },
+      { name: "Health", desc: "Health & fitness goals" },
+      { name: "Finance", desc: "Financial & bills tasks" },
+    ];
+    for (const d of defaults) {
+      try {
+        await createTaskListInDb(authUserId, d.name, d.desc);
+      } catch {}
+    }
+    lists = await listTaskListsFromDb(authUserId);
+  }
+  return lists;
 }
 
 export async function updateTaskList(

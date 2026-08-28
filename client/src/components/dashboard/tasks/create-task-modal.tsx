@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   ListTodo,
@@ -60,11 +60,23 @@ export function CreateTaskModal({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (taskLists.length > 0 && !taskListId) {
-      setTaskListId(taskLists[0].id);
+  const effectiveTaskLists = useMemo(() => {
+    if (taskLists && taskLists.length > 0) {
+      return taskLists;
     }
-  }, [taskLists, taskListId]);
+    return [
+      { id: "", name: "Work" },
+      { id: "", name: "Personal" },
+      { id: "", name: "Health" },
+      { id: "", name: "Finance" },
+    ];
+  }, [taskLists]);
+
+  useEffect(() => {
+    if (effectiveTaskLists.length > 0 && !taskListId) {
+      setTaskListId(effectiveTaskLists[0].id);
+    }
+  }, [effectiveTaskLists, taskListId]);
 
   const formatDateDisplay = (dateStr: string) => {
     try {
@@ -263,8 +275,8 @@ export function CreateTaskModal({
               onChange={(e) => setTaskListId(e.target.value)}
               className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-200 focus:border-lime-400/50 focus:outline-none"
             >
-              {taskLists.map((list) => (
-                <option key={list.id} value={list.id}>
+              {effectiveTaskLists.map((list: { id: string; name: string }, idx: number) => (
+                <option key={list.id || `default-${idx}`} value={list.id}>
                   {list.name}
                 </option>
               ))}

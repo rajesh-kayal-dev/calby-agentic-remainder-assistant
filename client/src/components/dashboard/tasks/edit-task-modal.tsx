@@ -268,25 +268,33 @@ export function EditTaskModal({
           </div>
 
           {/* Task List Selector */}
-          {taskLists.length > 0 && (
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Tag className="size-3.5 text-lime-400" />
-                Task List
-              </label>
-              <select
-                value={taskListId}
-                onChange={(e) => setTaskListId(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-200 focus:border-lime-400/50 focus:outline-none"
-              >
-                {taskLists.map((list) => (
-                  <option key={list.id} value={list.id}>
-                    {list.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {(() => {
+            const effectiveTaskLists = taskLists && taskLists.length > 0 ? taskLists : [
+              { id: "", name: "Work" },
+              { id: "", name: "Personal" },
+              { id: "", name: "Health" },
+              { id: "", name: "Finance" },
+            ];
+            return (
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="size-3.5 text-lime-400" />
+                  Task List
+                </label>
+                <select
+                  value={taskListId}
+                  onChange={(e) => setTaskListId(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-200 focus:border-lime-400/50 focus:outline-none"
+                >
+                  {effectiveTaskLists.map((list, idx) => (
+                    <option key={list.id || `default-${idx}`} value={list.id}>
+                      {list.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
 
           {/* Description */}
           <div className="space-y-1">
