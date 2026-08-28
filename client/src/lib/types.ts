@@ -61,6 +61,8 @@ export interface Task {
   recurrence_rule?: "none" | "daily" | "weekly" | "monthly" | null;
   recurrence_timezone?: string | null;
   next_occurrence_at?: string | null;
+  list_name?: string | null;
+  is_important?: boolean;
 }
 
 export type LedgerDirection = "receivable" | "payable";

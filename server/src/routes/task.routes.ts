@@ -121,17 +121,12 @@ taskRouter.post("/tasks", async (req, res) => {
     const authUserId = req.authContext!.authUserId;
     const { taskListId, title, description, contactId, priority, dueAt, recurrenceRule, recurrenceTimezone } = req.body;
 
-    if (!taskListId || typeof taskListId !== "string") {
-      res.status(400).json({ error: "taskListId is required" });
-      return;
-    }
-
     if (!title || typeof title !== "string" || title.trim().length === 0) {
       res.status(400).json({ error: "Task title is required" });
       return;
     }
 
-    const task = await createTask(authUserId, taskListId, {
+    const task = await createTask(authUserId, typeof taskListId === "string" ? taskListId : undefined, {
       title,
       description: description === null ? null : typeof description === "string" ? description : undefined,
       contactId: typeof contactId === "string" ? contactId : undefined,

@@ -183,7 +183,7 @@ export async function deleteTaskList(
 
 export async function createTask(
   authUserId: string,
-  taskListId: string,
+  taskListIdInput: string | undefined | null,
   input: {
     title: string;
     description?: string | null;
@@ -201,8 +201,19 @@ export async function createTask(
   validatePriority(input.priority);
   validateRecurrence(input.recurrenceRule);
 
+  let targetListId = taskListIdInput;
+  if (!targetListId) {
+    const existingLists = await listTaskListsFromDb(authUserId);
+    if (existingLists.length > 0) {
+      targetListId = existingLists[0].id;
+    } else {
+      const newList = await createTaskListInDb(authUserId, "Personal", "Default task list");
+      targetListId = newList.id;
+    }
+  }
+
   // Check task list ownership
-  const taskList = await getTaskListByIdFromDb(authUserId, taskListId);
+  const taskList = await getTaskListByIdFromDb(authUserId, targetListId);
   if (!taskList) {
     throw new Error("Task list not found or access denied");
   }
@@ -234,7 +245,7 @@ export async function createTask(
     nextOccurrenceAt = calculateNextOccurrence(parsedDueAt, input.recurrenceRule, targetTimezone || "UTC");
   }
 
-  return createTaskInDb(authUserId, taskListId, {
+  return createTaskInDb(authUserId, targetListId, {
     title: input.title,
     description: input.description,
     contactId: input.contactId,

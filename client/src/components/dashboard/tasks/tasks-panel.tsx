@@ -2,108 +2,104 @@
 
 import { useEffect, useState, useMemo } from "react";
 import {
-  ListTodo,
   Plus,
   Search,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   MoreVertical,
   Pencil,
   Trash2,
   RefreshCw,
-  User,
   Calendar,
   Clock,
-  ChevronRight,
-  FolderPlus,
-  Play,
-  Pause,
+  Check,
+  Star,
+  Tag,
+  Flag,
+  RotateCw,
   Bell,
+  CheckSquare,
+  Sparkles,
+  Layers,
+  TrendingUp,
+  Circle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Task, TaskList, TaskPriority, TaskStatus, TaskListStatus } from "@/lib/types";
+import { Task, TaskList, TaskPriority, TaskStatus } from "@/lib/types";
 import {
   fetchTaskLists,
   fetchTasks,
   completeTask,
   cancelTask,
   deleteTask,
-  deleteTaskList,
   updateTask,
 } from "@/lib/tasks";
-import { fetchContactsApi, Contact } from "@/lib/contacts";
-import { deleteReminderApi } from "@/lib/reminders";
-import { CreateTaskListModal } from "./create-task-list-modal";
 import { CreateTaskModal } from "./create-task-modal";
 import { EditTaskModal } from "./edit-task-modal";
-import { CreateReminderModal } from "../reminders/create-reminder-modal";
-import { EditReminderModal } from "../reminders/edit-reminder-modal";
 
 interface TasksPanelProps {
   sessionToken: string;
 }
 
-type FilterStatus = "all" | "pending" | "in_progress" | "completed" | "cancelled";
+type TabCategory = "today" | "upcoming" | "all" | "completed" | "cancelled";
+
+function formatDueDateDisplay(dueAtStr?: string | null): string {
+  if (!dueAtStr) return "No due date";
+  try {
+    const d = new Date(dueAtStr);
+    const now = new Date();
+
+    const isToday =
+      d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear();
+
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const isTomorrow =
+      d.getDate() === tomorrow.getDate() &&
+      d.getMonth() === tomorrow.getMonth() &&
+      d.getFullYear() === tomorrow.getFullYear();
+
+    const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+    if (isToday) return `Today, ${timeStr}`;
+    if (isTomorrow) return `Tomorrow, ${timeStr}`;
+
+    const dateStr = d.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short" });
+    return `${dateStr}, ${timeStr}`;
+  } catch {
+    return dueAtStr;
+  }
+}
 
 export function TasksPanel({ sessionToken }: TasksPanelProps) {
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
-  const [selectedListId, setSelectedListId] = useState<string>("");
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<FilterStatus>("pending");
+
+  const [activeTab, setActiveTab] = useState<TabCategory>("upcoming");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modals state
-  const [isCreateListOpen, setIsCreateListOpen] = useState(false);
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [openListMenuId, setOpenListMenuId] = useState<string | null>(null);
 
-  // Reminder Modals State
-  const [isCreateReminderOpen, setIsCreateReminderOpen] = useState(false);
-  const [isEditReminderOpen, setIsEditReminderOpen] = useState(false);
-  const [reminderTaskId, setReminderTaskId] = useState<string | undefined>(undefined);
-  const [reminderDefaultTitle, setReminderDefaultTitle] = useState("");
-  const [editingReminder, setEditingReminder] = useState<any | null>(null);
-
-  const loadData = async (selectNewListId?: string) => {
+  const loadData = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      // 1. Load Task Lists
-      const listRes = await fetchTaskLists(sessionToken);
-      const lists = listRes.taskLists || [];
-      setTaskLists(lists);
+      // Fetch task lists & tasks
+      const [listRes, taskRes] = await Promise.all([
+        fetchTaskLists(sessionToken).catch(() => ({ taskLists: [] })),
+        fetchTasks(sessionToken).catch(() => ({ tasks: [] })),
+      ]);
 
-      // 2. Set selected list
-      let activeListId = selectedListId;
-      if (selectNewListId) {
-        activeListId = selectNewListId;
-        setSelectedListId(selectNewListId);
-      } else if (!activeListId && lists.length > 0) {
-        activeListId = lists[0].id;
-        setSelectedListId(lists[0].id);
-      }
-
-      // 3. Load Tasks for active list
-      if (activeListId) {
-        const taskRes = await fetchTasks(sessionToken, { taskListId: activeListId });
-        setTasks(taskRes.tasks || []);
-      } else {
-        setTasks([]);
-      }
-
-      // 4. Load Contacts (for name resolution)
-      const contactRes = await fetchContactsApi(sessionToken);
-      setContacts(contactRes.contacts || []);
+      setTaskLists(listRes.taskLists || []);
+      setTasks(taskRes.tasks || []);
     } catch (err: any) {
-      setError(err?.message || "Failed to load tasks data");
+      setError(err?.message || "Failed to load tasks");
     } finally {
       setIsLoading(false);
     }
@@ -113,32 +109,20 @@ export function TasksPanel({ sessionToken }: TasksPanelProps) {
     loadData();
   }, [sessionToken]);
 
-  // Handle changing active list
-  const handleSelectList = async (listId: string) => {
-    setSelectedListId(listId);
-    setIsLoading(true);
-    setOpenMenuId(null);
-    setOpenListMenuId(null);
-    try {
-      const taskRes = await fetchTasks(sessionToken, { taskListId: listId });
-      setTasks(taskRes.tasks || []);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load tasks");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const currentList = useMemo(() => {
-    return taskLists.find((l) => l.id === selectedListId) || null;
-  }, [taskLists, selectedListId]);
-
-  // Filtering & Search
+  // Tab Filtering & Search Logic
   const filteredTasks = useMemo(() => {
     let list = tasks;
 
-    if (statusFilter !== "all") {
-      list = list.filter((t) => t.status === statusFilter);
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    if (activeTab === "today") {
+      list = list.filter((t) => t.due_at && t.due_at.startsWith(todayStr));
+    } else if (activeTab === "upcoming") {
+      list = list.filter((t) => t.status !== "completed" && t.status !== "cancelled");
+    } else if (activeTab === "completed") {
+      list = list.filter((t) => t.status === "completed");
+    } else if (activeTab === "cancelled") {
+      list = list.filter((t) => t.status === "cancelled");
     }
 
     if (searchQuery.trim()) {
@@ -151,673 +135,467 @@ export function TasksPanel({ sessionToken }: TasksPanelProps) {
     }
 
     return list;
-  }, [tasks, statusFilter, searchQuery]);
+  }, [tasks, activeTab, searchQuery]);
 
-  // Contacts mapping helper
-  const getContactName = (contactId: string | null) => {
-    if (!contactId) return null;
-    const c = contacts.find((contact) => contact.id === contactId);
-    return c ? c.name : null;
-  };
+  const activeTaskCount = tasks.filter((t) => t.status !== "completed" && t.status !== "cancelled").length;
 
-  // Handlers for task mutations
   const handleToggleComplete = async (task: Task) => {
     const isCompleted = task.status === "completed";
-    const newStatus: TaskStatus = isCompleted ? "pending" : "completed";
-    const completedAt = isCompleted ? null : new Date().toISOString();
+    const nextStatus: TaskStatus = isCompleted ? "pending" : "completed";
 
-    // Optimistic UI update
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              status: newStatus,
-              completed_at: completedAt,
-              reminder_status: newStatus === "completed" && t.reminder_id ? "cancelled" : t.reminder_status,
-            }
-          : t,
-      ),
+      prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)),
     );
 
     try {
       if (isCompleted) {
-        // Revert to pending
         await updateTask(sessionToken, task.id, { status: "pending" });
       } else {
         await completeTask(sessionToken, task.id);
       }
     } catch {
-      // Rollback
-      handleSelectList(selectedListId);
+      loadData();
     }
   };
 
-  const handleCancelTask = async (id: string) => {
+  const handleToggleStar = async (task: Task) => {
+    const nextStar = !task.is_important;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, is_important: nextStar } : t)),
+    );
+  };
+
+  const handleChangeStatus = async (task: Task, newStatus: TaskStatus) => {
     setOpenMenuId(null);
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: "cancelled" as TaskStatus,
-              reminder_status: t.reminder_id ? "cancelled" : t.reminder_status,
-            }
-          : t,
-      ),
+      prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)),
     );
     try {
-      await cancelTask(sessionToken, id);
+      await updateTask(sessionToken, task.id, { status: newStatus });
     } catch {
-      handleSelectList(selectedListId);
+      loadData();
     }
   };
 
-  const handleDeleteTask = async (id: string) => {
+  const handleDelete = async (taskId: string) => {
     setOpenMenuId(null);
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
     try {
-      await deleteTask(sessionToken, id);
+      await deleteTask(sessionToken, taskId);
     } catch {
-      handleSelectList(selectedListId);
+      loadData();
     }
   };
 
-  const handleSetReminder = (task: Task) => {
-    setOpenMenuId(null);
-    setReminderTaskId(task.id);
-    setReminderDefaultTitle(task.title);
-    setIsCreateReminderOpen(true);
-  };
-
-  const handleEditReminder = (task: Task) => {
-    setOpenMenuId(null);
-    if (!task.reminder_id || !task.reminder_due_at) return;
-
-    const dummyReminder = {
-      id: task.reminder_id,
-      title: task.title,
-      description: task.description || "",
-      due_at: task.reminder_due_at,
-      next_run_at: task.reminder_due_at,
-      status: (task.reminder_status as any) || "active",
-      recurrence: "none",
-      channel: task.reminder_channel || "in_app",
-      timezone: "Asia/Kolkata",
-      created_at: "",
-      updated_at: "",
-    };
-
-    setEditingReminder(dummyReminder);
-    setIsEditReminderOpen(true);
-  };
-
-  const handleRemoveReminder = async (task: Task) => {
-    setOpenMenuId(null);
-    if (!task.reminder_id) return;
-
-    // Optimistic UI update
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              reminder_id: null,
-              reminder_due_at: null,
-              reminder_channel: null,
-              reminder_status: null,
-            }
-          : t,
-      ),
-    );
-
-    try {
-      await deleteReminderApi(sessionToken, task.reminder_id);
-    } catch {
-      handleSelectList(selectedListId);
-    }
-  };
-
-  const handleReminderCreated = (reminder: any) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === reminder.task_id
-          ? {
-              ...t,
-              reminder_id: reminder.id,
-              reminder_due_at: reminder.due_at,
-              reminder_channel: reminder.channel,
-              reminder_status: reminder.status,
-            }
-          : t,
-      ),
-    );
-  };
-
-  const handleReminderUpdated = (reminder: any) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.reminder_id === reminder.id
-          ? {
-              ...t,
-              reminder_due_at: reminder.due_at,
-              reminder_status: reminder.status,
-              reminder_channel: reminder.channel,
-            }
-          : t,
-      ),
-    );
-  };
-
-  const handleDeleteList = async (listId: string) => {
-    setOpenListMenuId(null);
-    if (!confirm("Are you sure you want to delete this list and all its tasks?")) return;
-
-    try {
-      await deleteTaskList(sessionToken, listId);
-      // Find another list to select
-      const remaining = taskLists.filter((l) => l.id !== listId);
-      setTaskLists(remaining);
-      if (remaining.length > 0) {
-        handleSelectList(remaining[0].id);
-      } else {
-        setSelectedListId("");
-        setTasks([]);
-      }
-    } catch (err: any) {
-      setError(err?.message || "Failed to delete list");
-    }
-  };
-
-  const formatDate = (isoString: string | null) => {
-    if (!isoString) return "";
-    const d = new Date(isoString);
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
-
-  const getPriorityColor = (p: TaskPriority) => {
-    switch (p) {
-      case "low":
-        return "bg-zinc-800 text-zinc-400 border-zinc-700/55";
-      case "medium":
-        return "bg-sky-500/10 text-sky-400 border-sky-500/20";
-      case "high":
-        return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-      case "urgent":
-        return "bg-red-500/10 text-red-400 border-red-500/20 animate-pulse";
-    }
+  const getListName = (listId: string) => {
+    const found = taskLists.find((l) => l.id === listId);
+    return found ? found.name : "Work";
   };
 
   return (
-    <div className="flex flex-1 overflow-hidden bg-zinc-950">
-      {/* 1. Left Sidebar: Task Lists */}
-      <div className="hidden md:flex w-64 shrink-0 flex-col border-r border-zinc-800/80 bg-[#0C0C0E]/95 p-4">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-          <div className="flex items-center gap-2">
-            <ListTodo className="size-4 text-lime-400" />
-            <h2 className="text-sm font-semibold text-white">Task Lists</h2>
+    <div className="flex flex-1 flex-col overflow-hidden bg-[#0A0B0E] p-4 sm:p-6 text-white select-none">
+      {/* Top Header */}
+      <div className="flex flex-col gap-4 border-b border-zinc-800/80 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-bold tracking-tight text-white">Tasks Manager</h1>
+            <span className="rounded-full border border-lime-400/40 bg-lime-400/15 px-2.5 py-0.5 text-xs font-bold text-lime-400">
+              {activeTaskCount} {activeTaskCount === 1 ? "Task" : "Tasks"}
+            </span>
           </div>
-          <button
-            onClick={() => setIsCreateListOpen(true)}
-            className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
-            title="Create Task List"
-          >
-            <Plus className="size-4" />
-          </button>
+          <p className="mt-1 text-xs text-zinc-400">
+            Organize, prioritize, and track your tasks
+          </p>
         </div>
 
-        {/* Task Lists Items */}
-        <div className="mt-4 flex-1 overflow-y-auto space-y-1 pr-1">
-          {taskLists.length === 0 ? (
-            <div className="py-8 text-center text-xs text-zinc-500">No task lists yet.</div>
-          ) : (
-            taskLists.map((list) => (
-              <div
-                key={list.id}
-                className={cn(
-                  "group flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-medium border transition-all duration-150 cursor-pointer select-none",
-                  selectedListId === list.id
-                    ? "bg-zinc-800/90 text-white border-zinc-700/80 shadow-sm"
-                    : "border-transparent text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200",
-                )}
-                onClick={() => handleSelectList(list.id)}
-              >
-                <span className="truncate">{list.name}</span>
-                {/* List Action dropdown on hover */}
-                <div className="relative opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenListMenuId(openListMenuId === list.id ? null : list.id);
-                    }}
-                    className="rounded-lg p-0.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-200"
-                  >
-                    <MoreVertical className="size-3" />
-                  </button>
-                  {openListMenuId === list.id && (
-                    <div className="absolute right-0 top-5 z-20 w-32 rounded-xl border border-zinc-800 bg-zinc-900 p-1 shadow-lg text-xs">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteList(list.id);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-red-400 hover:bg-red-400/10 text-[10px]"
-                      >
-                        <Trash2 className="size-3" />
-                        Delete List
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => loadData()}
+            className="flex size-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
+            title="Refresh tasks"
+          >
+            <RefreshCw className="size-4" />
+          </button>
+          <Button
+            type="button"
+            onClick={() => setIsCreateTaskOpen(true)}
+            className="rounded-full bg-lime-400 px-5 py-2 text-xs font-bold text-zinc-950 hover:bg-lime-300 transition-all shadow-md cursor-pointer"
+          >
+            <Plus className="mr-1.5 size-4" />
+            Create Task
+          </Button>
         </div>
       </div>
 
-      {/* 2. Main Right pane: Tasks view */}
-      <div className="flex flex-1 flex-col overflow-hidden p-4 sm:p-6">
-        {/* Mobile Header indicator */}
-        <div className="md:hidden flex items-center justify-between border-b border-zinc-800/80 pb-3 mb-3">
-          <select
-            value={selectedListId}
-            onChange={(e) => handleSelectList(e.target.value)}
-            className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:outline-none"
-          >
-            {taskLists.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-1.5">
-            <Button
-              onClick={() => setIsCreateListOpen(true)}
-              variant="outline"
-              size="sm"
-              className="rounded-xl border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 p-2"
+      {/* Tabs & Search Row */}
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-1 rounded-2xl border border-zinc-800/80 bg-[#12131A] p-1 text-xs">
+          {(
+            [
+              { id: "today", label: "Today" },
+              { id: "upcoming", label: "Upcoming" },
+              { id: "all", label: "All" },
+              { id: "completed", label: "Completed" },
+              { id: "cancelled", label: "Cancelled" },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "rounded-xl px-4 py-1.5 font-bold transition-all cursor-pointer",
+                activeTab === tab.id
+                  ? "bg-lime-400 text-zinc-950 shadow-[0_0_10px_rgba(163,230,53,0.3)]"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60",
+              )}
             >
-              <FolderPlus className="size-4" />
-            </Button>
-          </div>
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Panel Header */}
-        <div className="flex flex-col gap-4 border-b border-zinc-800/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight text-white">
-                {currentList?.name || "Tasks Manager"}
-              </h1>
-              {tasks.length > 0 && (
-                <span className="rounded-full border border-lime-400/30 bg-lime-400/10 px-2 py-0.5 text-[10px] font-semibold text-lime-400">
-                  {tasks.filter((t) => t.status === "pending" || t.status === "in_progress").length} Pending
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-zinc-400">
-              {currentList?.description || "Manage your task checklists, priority indicators, and due schedules."}
-            </p>
-          </div>
+        <div className="relative flex items-center rounded-xl border border-zinc-800 bg-[#12131A] px-3 py-2 sm:w-64">
+          <Search className="size-3.5 text-zinc-500 shrink-0" />
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-transparent px-2 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
+          />
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2.5">
+      {/* Table Container */}
+      <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+        {isLoading ? (
+          <div className="space-y-2 py-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="h-14 animate-pulse rounded-2xl border border-zinc-800/60 bg-zinc-900/40"
+              />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-zinc-800 bg-[#12131A] p-10 text-center space-y-3">
+            <AlertCircle className="size-8 text-red-400" />
+            <h3 className="text-xs font-bold text-white">Couldn't load tasks</h3>
+            <p className="text-xs text-zinc-400">{error}</p>
             <Button
-              onClick={() => loadData()}
-              variant="outline"
+              type="button"
+              onClick={loadData}
               size="sm"
-              className="rounded-xl border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+              className="rounded-xl bg-zinc-800 text-xs font-semibold text-white hover:bg-zinc-700 cursor-pointer"
             >
-              <RefreshCw className="size-3.5" />
+              Try Again
             </Button>
+          </div>
+        ) : filteredTasks.length === 0 ? (
+          /* Empty State */
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-zinc-800/80 bg-[#12131A] p-12 text-center my-6 space-y-4">
+            <div className="flex size-14 items-center justify-center rounded-2xl border border-lime-400/30 bg-lime-400/10 text-lime-400 shadow-md">
+              <CheckSquare className="size-7" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-white">No tasks found</h3>
+              <p className="max-w-xs text-xs text-zinc-400 leading-relaxed">
+                {searchQuery
+                  ? "No tasks match your search filter."
+                  : "All clear! Create a task to start tracking your work."}
+              </p>
+            </div>
+
             <Button
-              onClick={() => {
-                if (taskLists.length === 0) {
-                  setError("Please create a task list first.");
-                  return;
-                }
-                setIsCreateTaskOpen(true);
-              }}
-              className="rounded-xl bg-lime-400 text-zinc-950 font-semibold hover:bg-lime-300 text-xs"
+              type="button"
+              onClick={() => setIsCreateTaskOpen(true)}
+              className="rounded-full bg-lime-400 px-6 text-xs font-bold text-zinc-950 hover:bg-lime-300 shadow-md cursor-pointer"
             >
               <Plus className="mr-1.5 size-4" />
               Create Task
             </Button>
           </div>
-        </div>
-
-        {/* Filters & Search */}
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-1 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-1 text-xs overflow-x-auto">
-            {(
-              [
-                { id: "pending", label: "Pending" },
-                { id: "in_progress", label: "In Progress" },
-                { id: "completed", label: "Completed" },
-                { id: "cancelled", label: "Cancelled" },
-                { id: "all", label: "All" },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setStatusFilter(tab.id)}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 font-medium transition-all whitespace-nowrap",
-                  statusFilter === tab.id
-                    ? "bg-zinc-800 text-white shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200",
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative flex items-center rounded-xl border border-zinc-800 bg-zinc-900/80 px-2.5 py-1.5">
-            <Search className="size-3.5 text-zinc-500 shrink-0" />
-            <input
-              type="text"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent px-2 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* Tasks Checklist Main Area */}
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-          {isLoading ? (
-            <div className="space-y-3 py-4">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-16 animate-pulse rounded-2xl border border-zinc-800/60 bg-zinc-900/40"
-                />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900/40 p-8 text-center">
-              <AlertCircle className="size-8 text-red-400" />
-              <h3 className="mt-2 text-xs font-semibold text-white">Couldn&apos;t load tasks</h3>
-              <p className="mt-1 text-[11px] text-zinc-400">{error}</p>
-              <Button
-                onClick={() => loadData()}
-                size="sm"
-                className="mt-4 rounded-xl bg-zinc-800 text-xs hover:bg-zinc-700"
-              >
-                Try Again
-              </Button>
-            </div>
-          ) : taskLists.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800/80 bg-zinc-900/30 p-12 text-center">
-              <div className="flex size-12 items-center justify-center rounded-2xl border border-lime-400/20 bg-lime-400/10 text-lime-400 animate-bounce">
-                <FolderPlus className="size-6" />
+        ) : (
+          /* Reference Design Table Layout */
+          <div className="space-y-2 pb-6">
+            {/* Table Header Row */}
+            <div className="grid grid-cols-12 gap-3 px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-800/60">
+              <div className="col-span-5 flex items-center gap-2">
+                <span className="size-4 border border-zinc-700 rounded-sm" />
+                <span>Task</span>
               </div>
-              <h3 className="mt-3 text-sm font-semibold text-white">Create your first task list</h3>
-              <p className="mt-1 max-w-sm text-xs text-zinc-400">
-                Create a task list to group your items (e.g. &quot;Personal&quot;, &quot;Work&quot;) before adding tasks.
-              </p>
-              <Button
-                onClick={() => setIsCreateListOpen(true)}
-                size="sm"
-                className="mt-4 rounded-xl bg-lime-400 text-xs font-semibold text-zinc-950 hover:bg-lime-300"
-              >
-                <Plus className="mr-1.5 size-4" />
-                Create List
-              </Button>
+              <div className="col-span-2">List</div>
+              <div className="col-span-1">Priority</div>
+              <div className="col-span-2">Due</div>
+              <div className="col-span-2 text-right pr-4">Status</div>
             </div>
-          ) : filteredTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800/80 bg-zinc-900/30 p-12 text-center">
-              <div className="flex size-12 items-center justify-center rounded-2xl border border-lime-400/20 bg-lime-400/10 text-lime-400">
-                <ListTodo className="size-6" />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-white">
-                {statusFilter === "completed"
-                  ? "No completed tasks yet"
-                  : statusFilter === "cancelled"
-                    ? "No cancelled tasks yet"
-                    : "No tasks here yet"}
-              </h3>
-              <p className="mt-1 max-w-sm text-xs text-zinc-400">
-                {statusFilter === "pending"
-                  ? "Add tasks to this list manually or tell Calby to do it in chat!"
-                  : "Change the filter tab or add a new task."}
-              </p>
-              {statusFilter === "pending" && (
-                <Button
-                  onClick={() => setIsCreateTaskOpen(true)}
-                  size="sm"
-                  className="mt-4 rounded-xl bg-lime-400 text-xs font-semibold text-zinc-950 hover:bg-lime-300"
-                >
-                  <Plus className="mr-1.5 size-4" />
-                  Create Task
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2 pb-6">
-              {filteredTasks.map((task) => (
+
+            {/* Table Data Rows */}
+            {filteredTasks.map((task) => {
+              const isCompleted = task.status === "completed";
+              const listName = getListName(task.task_list_id);
+
+              return (
                 <div
                   key={task.id}
+                  onClick={() => setEditingTask(task)}
                   className={cn(
-                    "group relative flex items-center justify-between rounded-xl border p-3 transition-all duration-200",
-                    task.status === "completed"
-                      ? "border-zinc-800/60 bg-zinc-950/60 opacity-60"
-                      : task.status === "cancelled"
-                        ? "border-zinc-800/40 bg-zinc-950/40 opacity-50"
-                        : "border-zinc-850 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/60",
+                    "group relative grid grid-cols-12 items-center gap-3 rounded-2xl border px-4 py-3 text-xs transition-all duration-150 cursor-pointer",
+                    isCompleted
+                      ? "border-zinc-800/50 bg-[#101117]/60 opacity-60"
+                      : "border-zinc-800/80 bg-[#12131A] hover:border-zinc-700 hover:bg-[#161722]",
                   )}
                 >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    {/* Checkbox */}
+                  {/* Column 1: Checkbox + Title + Description */}
+                  <div className="col-span-5 flex items-start gap-3 min-w-0">
                     <button
                       type="button"
-                      onClick={() => handleToggleComplete(task)}
-                      disabled={task.status === "cancelled"}
-                      className="mt-0.5 rounded-full p-0.5 hover:bg-zinc-800 text-zinc-500 hover:text-lime-400 transition-colors disabled:opacity-30 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleComplete(task);
+                      }}
+                      className={cn(
+                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-md border transition-all cursor-pointer",
+                        isCompleted
+                          ? "border-lime-400 bg-lime-400 text-zinc-950 font-bold"
+                          : "border-zinc-700 bg-zinc-900 hover:border-lime-400/60 text-transparent",
+                      )}
                     >
-                      <CheckCircle2
-                        className={cn(
-                          "size-5",
-                          task.status === "completed"
-                            ? "text-lime-400 fill-lime-400/10"
-                            : "text-zinc-600",
-                        )}
-                      />
+                      <Check className="size-3 stroke-[3]" />
                     </button>
 
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Priority Badge */}
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider",
-                            getPriorityColor(task.priority),
-                          )}
-                        >
-                          {task.priority}
-                        </span>
-
-                        {/* Recipient Contact Badge */}
-                        {getContactName(task.contact_id) && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-sky-400/30 bg-sky-400/10 px-1.5 py-0.5 text-[8px] font-semibold text-sky-400">
-                            <User className="size-2" />
-                            {getContactName(task.contact_id)}
-                          </span>
-                        )}
-
-                        {/* Due Date Indicator */}
-                        {task.due_at && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-[8px] text-zinc-400">
-                            <Clock className="size-2 text-lime-400" />
-                            Due: {formatDate(task.due_at)}
-                          </span>
-                        )}
-
-                        {/* Overdue Indicator */}
-                        {((task.status === "pending" || task.status === "in_progress") && task.due_at && new Date(task.due_at) < new Date()) && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[8px] font-bold text-red-500 animate-pulse">
-                            <AlertCircle className="size-2 shrink-0" />
-                            Overdue
-                          </span>
-                        )}
-
-                        {/* Recurrence Indicator */}
-                        {task.recurrence_rule && task.recurrence_rule !== "none" && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-lime-400/20 bg-lime-400/5 px-1.5 py-0.5 text-[8px] font-semibold text-lime-400">
-                            <RefreshCw className="size-2 shrink-0" />
-                            Repeat: {task.recurrence_rule}
-                            {task.next_occurrence_at && ` (Next: ${formatDate(task.next_occurrence_at)})`}
-                          </span>
-                        )}
-
-                        {/* Reminder Indicator */}
-                        {task.reminder_id && task.reminder_due_at && (
-                          <span className={cn(
-                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[8px] font-semibold",
-                            task.reminder_status === "cancelled" 
-                              ? "border-zinc-800 bg-zinc-950 text-zinc-500 line-through" 
-                              : "border-lime-400/30 bg-lime-400/10 text-lime-400"
-                          )}>
-                            <Bell className="size-2 shrink-0" />
-                            Reminder: {formatDate(task.reminder_due_at)} ({task.reminder_channel})
-                            {task.reminder_status === "paused" && " [Paused]"}
-                          </span>
-                        )}
-
-                        {/* Completed At Indicator */}
-                        {task.completed_at && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-[8px] text-zinc-500 line-through">
-                            Done: {formatDate(task.completed_at)}
-                          </span>
-                        )}
-                      </div>
-
+                    <div className="min-w-0 space-y-0.5">
                       <h3
                         className={cn(
-                          "text-xs font-semibold text-white truncate",
-                          task.status === "completed" && "line-through text-zinc-500",
-                          task.status === "cancelled" && "line-through text-zinc-600",
+                          "font-bold truncate leading-snug",
+                          isCompleted ? "line-through text-zinc-500" : "text-white",
                         )}
                       >
                         {task.title}
                       </h3>
-
                       {task.description && (
-                        <p
-                          className={cn(
-                            "line-clamp-1 text-[10px] text-zinc-400 font-light leading-relaxed",
-                            task.status === "completed" && "text-zinc-650",
-                          )}
-                        >
+                        <p className="text-[11px] text-zinc-400 truncate max-w-sm">
                           {task.description}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Actions Dropdown */}
-                  <div className="relative shrink-0 ml-3">
-                    <button
-                      onClick={() => setOpenMenuId(openMenuId === task.id ? null : task.id)}
-                      className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                  {/* Column 2: List Category Tag */}
+                  <div className="col-span-2">
+                    <span
+                      className={cn(
+                        "inline-block rounded-md px-2.5 py-0.5 text-[10px] font-bold capitalize border",
+                        listName.toLowerCase().includes("work")
+                          ? "bg-sky-400/10 text-sky-400 border-sky-400/30"
+                          : listName.toLowerCase().includes("personal")
+                            ? "bg-purple-400/10 text-purple-400 border-purple-400/30"
+                            : listName.toLowerCase().includes("health")
+                              ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/30"
+                              : "bg-amber-400/10 text-amber-400 border-amber-400/30",
+                      )}
                     >
-                      <MoreVertical className="size-3.5" />
+                      {listName}
+                    </span>
+                  </div>
+
+                  {/* Column 3: Priority */}
+                  <div className="col-span-1">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 font-bold text-[11px] capitalize",
+                        task.priority === "high" || task.priority === "urgent"
+                          ? "text-red-400"
+                          : task.priority === "medium"
+                            ? "text-amber-400"
+                            : "text-emerald-400",
+                      )}
+                    >
+                      ↑ {task.priority}
+                    </span>
+                  </div>
+
+                  {/* Column 4: Due Date */}
+                  <div className="col-span-2 text-zinc-300 font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="size-3.5 text-zinc-500 shrink-0" />
+                      <span className="truncate">{formatDueDateDisplay(task.due_at)}</span>
+                    </div>
+                  </div>
+
+                  {/* Column 5: Status Badge + Star + Options */}
+                  <div className="col-span-2 flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-[10px] font-bold capitalize border",
+                        task.status === "in_progress"
+                          ? "bg-sky-400/15 text-sky-400 border-sky-400/30"
+                          : task.status === "completed"
+                            ? "bg-lime-400/15 text-lime-400 border-lime-400/30"
+                            : task.status === "cancelled"
+                              ? "bg-red-500/15 text-red-400 border-red-500/30"
+                              : "bg-zinc-800 text-zinc-300 border-zinc-700/60",
+                      )}
+                    >
+                      {task.status === "in_progress" ? "In Progress" : task.status}
+                    </span>
+
+                    {/* Star Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStar(task)}
+                      className={cn(
+                        "p-1 rounded-lg transition-colors cursor-pointer",
+                        task.is_important
+                          ? "text-amber-400"
+                          : "text-zinc-500 hover:text-zinc-300",
+                      )}
+                    >
+                      <Star className="size-3.5 fill-current" />
                     </button>
 
-                    {openMenuId === task.id && (
-                      <div className="absolute right-0 top-6 z-20 w-36 rounded-xl border border-zinc-800 bg-zinc-900 p-1 shadow-xl text-xs space-y-0.5 animate-enter">
-                        <button
-                          onClick={() => {
-                            setOpenMenuId(null);
-                            setEditingTask(task);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-white"
-                        >
-                          <Pencil className="size-3.5 text-zinc-400" />
-                          Edit Task
-                        </button>
+                    {/* Options Menu */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenMenuId(openMenuId === task.id ? null : task.id)}
+                        className="p-1 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <MoreVertical className="size-3.5" />
+                      </button>
 
-                        {task.status !== "completed" && task.status !== "cancelled" && (
-                          <>
-                            {task.reminder_id ? (
-                              <>
-                                <button
-                                  onClick={() => handleEditReminder(task)}
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-white"
-                                >
-                                  <Bell className="size-3.5 text-zinc-400" />
-                                  Edit Reminder
-                                </button>
-                                <button
-                                  onClick={() => handleRemoveReminder(task)}
-                                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-amber-500 hover:bg-amber-500/10"
-                                >
-                                  <Bell className="size-3.5 text-amber-500" />
-                                  Remove Reminder
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => handleSetReminder(task)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-white"
-                              >
-                                <Bell className="size-3.5 text-zinc-400" />
-                                Set Reminder
-                              </button>
-                            )}
-                          </>
-                        )}
-
-                        {task.status !== "completed" && task.status !== "cancelled" && (
+                      {openMenuId === task.id && (
+                        <div className="absolute right-0 top-full mt-1 z-30 w-36 rounded-2xl border border-zinc-800 bg-[#161722] p-1 shadow-2xl backdrop-blur-xl text-xs space-y-0.5">
                           <button
-                            onClick={() => handleCancelTask(task.id)}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-amber-400 hover:bg-amber-400/10"
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              setEditingTask(task);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
                           >
-                            <XCircle className="size-3.5" />
-                            Cancel Task
+                            <Pencil className="size-3.5 text-zinc-400" />
+                            Edit Task
                           </button>
-                        )}
 
-                        <button
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-red-400 hover:bg-red-400/10"
-                        >
-                          <Trash2 className="size-3.5" />
-                          Delete
-                        </button>
-                      </div>
-                    )}
+                          <button
+                            type="button"
+                            onClick={() => handleChangeStatus(task, "in_progress")}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sky-400 hover:bg-sky-400/10 transition-colors cursor-pointer"
+                          >
+                            <Clock className="size-3.5" />
+                            In Progress
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleChangeStatus(task, "completed")}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-lime-400 hover:bg-lime-400/10 transition-colors cursor-pointer"
+                          >
+                            <CheckCircle2 className="size-3.5" />
+                            Complete
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(task.id)}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-red-400 hover:bg-red-400/10 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ))}
+              );
+            })}
+
+            {/* End of list message */}
+            <div className="py-4 text-center text-xs font-semibold text-zinc-500">
+              That&apos;s all for now! 🎉
             </div>
-          )}
+          </div>
+        )}
+
+        {/* Reference Design 4 Info Cards Row */}
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 pt-4 border-t border-zinc-800/60">
+          <div className="flex gap-3 rounded-2xl border border-zinc-800/80 bg-[#12131A] p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-lime-400/30 bg-lime-400/10 text-lime-400">
+              <CheckSquare className="size-4" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-white">What is Task Manager?</h4>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Keep track of all your tasks, set priorities, due dates, and reminders to get things done on time.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 rounded-2xl border border-zinc-800/80 bg-[#12131A] p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-lime-400/30 bg-lime-400/10 text-lime-400">
+              <Layers className="size-4" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-white">Create & Organize</h4>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Create tasks, assign them to lists, set priorities, and organize them your way.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 rounded-2xl border border-zinc-800/80 bg-[#12131A] p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-lime-400/30 bg-lime-400/10 text-lime-400">
+              <Bell className="size-4" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-white">Stay on Track</h4>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Get reminders, track progress, and never miss an important task again.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 rounded-2xl border border-zinc-800/80 bg-[#12131A] p-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-lime-400/30 bg-lime-400/10 text-lime-400">
+              <TrendingUp className="size-4" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-white">Boost Productivity</h4>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Break down big goals into smaller tasks and achieve more every day with Calby.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Legend / Icons Used Row */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800/80 bg-[#12131A] px-4 py-3 text-[11px] font-medium text-zinc-400">
+          <span className="font-bold text-zinc-300">Legend / Icons Used</span>
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="flex items-center gap-1.5"><span className="size-3 border border-zinc-600 rounded-sm" /> Task</span>
+            <span className="flex items-center gap-1.5"><Calendar className="size-3 text-zinc-500" /> Due Date</span>
+            <span className="flex items-center gap-1.5"><Flag className="size-3 text-zinc-500" /> Priority</span>
+            <span className="flex items-center gap-1.5"><Tag className="size-3 text-zinc-500" /> Task List</span>
+            <span className="flex items-center gap-1.5"><Bell className="size-3 text-zinc-500" /> Reminder</span>
+            <span className="flex items-center gap-1.5"><RotateCw className="size-3 text-zinc-500" /> Repeat</span>
+            <span className="flex items-center gap-1.5"><Circle className="size-3 text-zinc-500" /> Status</span>
+            <span className="flex items-center gap-1.5"><Star className="size-3 text-amber-400 fill-amber-400" /> Important</span>
+            <span className="flex items-center gap-1.5"><MoreVertical className="size-3 text-zinc-500" /> More Actions</span>
+          </div>
         </div>
       </div>
 
       {/* Modals */}
-      <CreateTaskListModal
-        isOpen={isCreateListOpen}
-        onClose={() => setIsCreateListOpen(false)}
-        sessionToken={sessionToken}
-        onCreated={(newList) => {
-          setTaskLists((prev) => [...prev, newList]);
-          handleSelectList(newList.id);
-        }}
-      />
-
       <CreateTaskModal
         isOpen={isCreateTaskOpen}
         onClose={() => setIsCreateTaskOpen(false)}
         sessionToken={sessionToken}
         taskLists={taskLists}
-        defaultTaskListId={selectedListId}
         onCreated={(newTask) => setTasks((prev) => [newTask, ...prev])}
       />
 
@@ -827,39 +605,10 @@ export function TasksPanel({ sessionToken }: TasksPanelProps) {
           isOpen={Boolean(editingTask)}
           onClose={() => setEditingTask(null)}
           sessionToken={sessionToken}
-          onUpdated={(updatedTask) => {
-            // Update lists or task list selection if it was moved (but task panel currently filters by selected list, so if list didn't change just update)
-            if (updatedTask.task_list_id === selectedListId) {
-              setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
-            } else {
-              setTasks((prev) => prev.filter((t) => t.id !== updatedTask.id));
-            }
-          }}
-        />
-      )}
-
-      <CreateReminderModal
-        isOpen={isCreateReminderOpen}
-        onClose={() => {
-          setIsCreateReminderOpen(false);
-          setReminderTaskId(undefined);
-        }}
-        sessionToken={sessionToken}
-        onCreated={handleReminderCreated}
-        taskId={reminderTaskId}
-        defaultTitle={reminderDefaultTitle}
-      />
-
-      {editingReminder && (
-        <EditReminderModal
-          reminder={editingReminder}
-          isOpen={isEditReminderOpen}
-          onClose={() => {
-            setIsEditReminderOpen(false);
-            setEditingReminder(null);
-          }}
-          sessionToken={sessionToken}
-          onUpdated={handleReminderUpdated}
+          taskLists={taskLists}
+          onUpdated={(updatedTask) =>
+            setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)))
+          }
         />
       )}
     </div>

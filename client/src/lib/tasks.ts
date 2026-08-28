@@ -74,7 +74,7 @@ export async function fetchTask(token: string, taskId: string): Promise<{ task: 
 export async function createTask(
   token: string,
   body: {
-    taskListId: string;
+    taskListId?: string;
     title: string;
     description?: string | null;
     contactId?: string | null;
