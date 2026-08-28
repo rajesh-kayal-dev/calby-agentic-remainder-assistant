@@ -275,42 +275,42 @@ export function CalbyAlertModal({ sessionToken }: CalbyAlertModalProps) {
           </div>
         )}
 
-        {/* Action Controls */}
+        {/* Action Controls (Reference Design Section 4) */}
         <div className="space-y-2 pt-2">
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="flex items-center gap-2.5">
             {/* Snooze 10m */}
             <button
               type="button"
               disabled={actionLoading}
               onClick={() => handleSnooze(10)}
-              className="flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-xs font-bold text-zinc-200 hover:bg-zinc-800 hover:border-zinc-600 transition-all cursor-pointer shadow-sm"
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-xs font-bold text-zinc-200 hover:bg-zinc-800 hover:border-zinc-600 transition-all cursor-pointer shadow-sm"
             >
               <RotateCcw className="size-3.5 text-amber-400" />
               <span>Snooze (10m)</span>
             </button>
 
-            {/* Stop Sound & Keep Pending */}
+            {/* Complete */}
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={handleComplete}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-lime-400/40 bg-lime-400/20 px-3 py-2.5 text-xs font-bold text-lime-400 hover:bg-lime-400 hover:text-zinc-950 transition-all cursor-pointer shadow-sm"
+            >
+              <CheckCircle2 className="size-3.5" />
+              <span>Complete</span>
+            </button>
+
+            {/* Dismiss */}
             <button
               type="button"
               disabled={actionLoading}
               onClick={handleStop}
-              className="flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer shadow-sm"
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer shadow-sm"
             >
-              <Square className="size-3.5 text-red-400" />
-              <span>Stop Alarm</span>
+              <X className="size-3.5" />
+              <span>Dismiss</span>
             </button>
           </div>
-
-          {/* Mark Complete Button */}
-          <button
-            type="button"
-            disabled={actionLoading}
-            onClick={handleComplete}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-lime-400 px-4 py-3 text-xs font-extrabold text-zinc-950 hover:bg-lime-300 transition-all cursor-pointer shadow-md"
-          >
-            <CheckCircle2 className="size-4" />
-            <span>Mark Complete</span>
-          </button>
         </div>
       </div>
     </div>
