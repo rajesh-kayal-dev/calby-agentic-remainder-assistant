@@ -1659,6 +1659,64 @@ ALL recipient and channel resolution is server-side.`,
       });
     },
   },
+  "money.create_entry": {
+    id: "money.create_entry",
+    name: "Create Money Ledger Entry",
+    description: "Record money lent to someone (receivable) or money borrowed from someone (payable)",
+    category: "MONEY",
+    confirmationRequired: false,
+    inputSchema: z.object({
+      personName: z.string().describe("Name of person involved, e.g., 'Rahul', 'Amit'"),
+      direction: z.enum(["receivable", "payable"]).describe("'receivable' if user lent money or others owe user; 'payable' if user borrowed money"),
+      amount: z.number().positive().describe("Amount in currency units, e.g. 350"),
+      title: z.string().optional().describe("Short description, e.g., 'Lunch money'"),
+      notes: z.string().optional().describe("Optional extra notes"),
+      dueAt: z.string().optional().describe("Optional ISO date string or date description"),
+      reminderAt: z.string().optional().describe("Optional ISO date string for reminder trigger"),
+    }),
+    execute: async (authUserId, input) => {
+      const title = input.title?.trim() || `${input.direction === "receivable" ? "Lent to" : "Borrowed from"} ${input.personName}`;
+      const item = await createLedgerItem(authUserId, {
+        personName: input.personName,
+        direction: input.direction,
+        amount: input.amount,
+        title,
+        notes: input.notes,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+        reminderAt: input.reminderAt ? new Date(input.reminderAt) : null,
+      });
+      return {
+        success: true,
+        message: `Recorded: ${input.direction === "receivable" ? "Lent" : "Borrowed"} ₹${input.amount} ${input.direction === "receivable" ? "to" : "from"} ${input.personName}.`,
+        ledgerItem: item,
+      };
+    },
+  },
+  "money.list_entries": {
+    id: "money.list_entries",
+    name: "List Money Ledger Entries",
+    description: "Fetch receivables, payables, or balance summary for the user",
+    category: "MONEY",
+    confirmationRequired: false,
+    inputSchema: z.object({
+      status: z.enum(["pending", "partially_paid", "paid", "cancelled"]).optional(),
+      direction: z.enum(["receivable", "payable"]).optional(),
+      personName: z.string().optional(),
+    }),
+    execute: async (authUserId, input) => {
+      let contactId: string | undefined;
+      if (input.personName) {
+        const matches = await findContactsByName(authUserId, input.personName);
+        if (matches.length > 0) contactId = matches[0].id;
+      }
+      const items = await listLedgerItems(authUserId, {
+        status: input.status,
+        direction: input.direction,
+        contactId,
+      });
+      return { items };
+    },
+  },
 };
 
 async function resolveLedgerItem(

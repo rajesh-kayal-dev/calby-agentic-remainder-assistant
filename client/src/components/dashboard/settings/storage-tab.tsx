@@ -1,129 +1,322 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { HardDrive, Trash2, Check, RefreshCcw, Database, FileCode } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useState, useEffect, useMemo } from "react";
+import {
+  HardDrive,
+  Trash2,
+  Check,
+  AlertTriangle,
+  LoaderCircle,
+  Database,
+  RefreshCw,
+  X,
+  Smartphone,
+  Server,
+  Zap,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSession } from "@descope/nextjs-sdk/client";
+import { fetchUserStorageApi, clearServerCacheApi, StorageStats } from "@/lib/storage";
 
 export function StorageTab() {
-  const [usedMb, setUsedMb] = useState(42.8);
-  const totalMb = 500;
+  const { sessionToken } = useSession();
+  const [stats, setStats] = useState<StorageStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Local Browser Cache Stats
+  const [localCacheBytes, setLocalCacheBytes] = useState<number>(0);
+
+  // Modal State
+  const [clearModalOpen, setClearModalOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [feedback, setFeedback] = useState("");
+  const [clearSuccess, setClearSuccess] = useState(false);
 
-  // Calculate remaining and percentage
-  const remainingMb = (totalMb - usedMb).toFixed(1);
-  const percentage = Math.min(100, Math.max(0, (usedMb / totalMb) * 100)).toFixed(1);
-
-  // Small Usage Breakdown
-  const breakdown = [
-    { label: "Chat & AI Conversation History", sizeMb: "24.2 MB", pct: "56.5%" },
-    { label: "Connected Apps Metadata & Cache", sizeMb: "12.6 MB", pct: "29.4%" },
-    { label: "Tasks & Reminders Storage", sizeMb: "6.0 MB", pct: "14.1%" },
-  ];
-
-  const handleClearCache = () => {
-    setClearing(true);
-    setTimeout(() => {
-      // Clear localStorage items if present
-      try {
-        if (typeof window !== "undefined") {
-          const keysToKeep = ["user", "token", "session"];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && !keysToKeep.includes(key)) {
-              localStorage.removeItem(key);
-            }
-          }
+  const calculateLocalBrowserCache = () => {
+    if (typeof window === "undefined") return;
+    try {
+      let totalBytes = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          const val = localStorage.getItem(key) || "";
+          totalBytes += (key.length + val.length) * 2; // UTF-16 approximation
         }
-      } catch {
-        // Fallback
       }
-      setUsedMb(6.0);
-      setClearing(false);
-      setFeedback("Local cache cleared successfully.");
-      setTimeout(() => setFeedback(""), 3000);
-    }, 600);
+      setLocalCacheBytes(totalBytes);
+    } catch {
+      setLocalCacheBytes(0);
+    }
   };
 
+  const loadStorage = async () => {
+    if (!sessionToken) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchUserStorageApi(sessionToken);
+      setStats(data);
+      calculateLocalBrowserCache();
+    } catch (err: any) {
+      setError(err?.message || "Failed to calculate storage usage");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStorage();
+  }, [sessionToken]);
+
+  const handleConfirmClearCache = async () => {
+    if (!sessionToken) return;
+    setClearing(true);
+    try {
+      // Clear non-auth localStorage keys
+      if (typeof window !== "undefined") {
+        const keepPrefixes = ["descope", "session", "token"];
+        const keysToRemove: string[] = [];
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && !keepPrefixes.some((p) => key.toLowerCase().includes(p))) {
+            keysToRemove.push(key);
+          }
+        }
+
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      }
+
+      await clearServerCacheApi(sessionToken);
+      await loadStorage();
+
+      setClearModalOpen(false);
+      setClearSuccess(true);
+      setTimeout(() => setClearSuccess(false), 4000);
+    } catch (err: any) {
+      setError(err?.message || "Failed to clear cache");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const formattedBrowserCache = useMemo(() => {
+    if (localCacheBytes < 1024) return `${localCacheBytes} B`;
+    if (localCacheBytes < 1024 * 1024) return `${(localCacheBytes / 1024).toFixed(1)} KB`;
+    return `${(localCacheBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }, [localCacheBytes]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 w-full max-w-3xl select-none" role="status" aria-label="Loading storage stats">
+        <div className="space-y-1.5">
+          <div className="h-5 w-44 rounded bg-zinc-800 animate-pulse" />
+          <div className="h-3 w-64 rounded bg-zinc-800/60 animate-pulse" />
+        </div>
+
+        <div className="rounded-2xl border border-zinc-800/90 bg-[#12131A] p-5 space-y-4">
+          <div className="h-10 rounded-xl bg-zinc-800/60 animate-pulse" />
+          <div className="h-3 rounded-full bg-zinc-800/60 animate-pulse" />
+          <div className="space-y-2 pt-3">
+            <div className="h-8 rounded-xl bg-zinc-800/60 animate-pulse" />
+            <div className="h-8 rounded-xl bg-zinc-800/60 animate-pulse" />
+            <div className="h-8 rounded-xl bg-zinc-800/60 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const usagePct = stats?.usagePercentage || 0;
+  const isHigh = stats?.isHighUsage || usagePct >= 85;
+
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6 pb-12 select-none">
-      {/* HEADER SECTION */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">
-          Data & Storage
-        </h1>
-        <p className="text-xs sm:text-sm text-zinc-400 mt-1.5">
-          Manage local cache and workspace storage context.
-        </p>
+    <div className="space-y-6 w-full select-none max-w-3xl">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+        <div>
+          <h2 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
+            Data & Storage
+          </h2>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Monitor real database storage usage, plan limits, and manage temporary browser cache.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={loadStorage}
+          className="h-8 rounded-xl border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 text-xs font-semibold px-3 cursor-pointer"
+        >
+          <RefreshCw className="size-3 mr-1 text-lime-400" />
+          <span>Refresh</span>
+        </Button>
       </div>
 
-      {/* STORAGE USAGE CARD */}
-      <div className="rounded-3xl border border-zinc-800 bg-[#111215] p-6 sm:p-7 space-y-5 shadow-sm">
+      {error && (
+        <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+          <AlertTriangle className="size-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {clearSuccess && (
+        <div className="flex items-center gap-2 rounded-xl border border-lime-400/30 bg-lime-400/10 p-3 text-xs font-semibold text-lime-400 animate-in fade-in duration-150">
+          <Check className="size-4 shrink-0 stroke-[3]" />
+          <span>Cache cleared successfully! Saved database records were preserved intact.</span>
+        </div>
+      )}
+
+      {/* High Storage Warning Banner */}
+      {isHigh && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 shadow-md">
+          <AlertTriangle className="size-5 shrink-0 text-amber-400" />
+          <div>
+            <p className="font-bold text-white">Storage limit nearly reached ({usagePct}%)</p>
+            <p className="text-[11px] text-amber-200/80 mt-0.5">
+              You are approaching your plan storage limit of {stats?.formattedLimit}. Clear temporary cache or upgrade your plan.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 1. Main Workspace Storage Card */}
+      <div className="rounded-2xl border border-zinc-800/90 bg-[#12131A] p-5 space-y-5 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-zinc-900 border border-zinc-800 text-lime-400">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-lime-400/10 border border-lime-400/30 text-lime-400">
               <HardDrive className="size-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Workspace Storage</h2>
-              <p className="text-xs text-zinc-400">
-                {usedMb.toFixed(1)} MB of {totalMb} MB used ({remainingMb} MB remaining)
+              <h3 className="text-sm font-bold text-white">Cloud Workspace Storage</h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                {stats?.formattedUsed} used of {stats?.formattedLimit} ({stats?.formattedRemaining} remaining)
               </p>
             </div>
           </div>
 
-          <span className="text-lg font-black text-lime-400">{percentage}%</span>
+          <span
+            className={`text-lg font-black ${
+              usagePct >= 90 ? "text-rose-400" : usagePct >= 75 ? "text-amber-400" : "text-lime-400"
+            }`}
+          >
+            {usagePct}%
+          </span>
         </div>
 
         {/* Progress Bar */}
         <div className="w-full h-3 rounded-full bg-zinc-900 border border-zinc-800 overflow-hidden p-0.5">
           <div
-            className="h-full rounded-full bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.6)] transition-all duration-500"
-            style={{ width: `${percentage}%` }}
+            className={`h-full rounded-full transition-all duration-500 ${
+              usagePct >= 90
+                ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.5)]"
+                : usagePct >= 75
+                ? "bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)]"
+                : "bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.5)]"
+            }`}
+            style={{ width: `${Math.max(2, usagePct)}%` }}
           />
         </div>
 
-        {/* Usage Breakdown */}
-        <div className="pt-2 border-t border-zinc-800/80 space-y-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-            Storage Breakdown
+        {/* Real Storage Category Breakdown */}
+        <div className="space-y-3 pt-3 border-t border-zinc-800/80">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+            <Database className="size-3.5 text-lime-400" />
+            <span>Database Storage Breakdown</span>
           </span>
-          <div className="space-y-2 text-xs">
-            {breakdown.map((item) => (
-              <div key={item.label} className="flex items-center justify-between text-zinc-300">
-                <span className="font-medium text-zinc-400">{item.label}</span>
-                <span className="font-semibold text-white">{item.sizeMb} ({item.pct})</span>
+
+          <div className="space-y-2">
+            {stats?.categories.map((cat) => (
+              <div
+                key={cat.id}
+                className="flex items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-3.5 py-2 text-xs"
+              >
+                <span className="font-medium text-zinc-300">{cat.label}</span>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-white">{cat.formattedSize}</span>
+                  <span className="text-[11px] font-semibold text-zinc-500 w-12 text-right">
+                    {cat.percentage}%
+                  </span>
+                </div>
               </div>
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Action Row */}
-        <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-4">
-          <p className="text-xs text-zinc-500">
-            Clearing cache removes temporary offline data without deleting your saved account data.
-          </p>
+      {/* 2. Local Browser Cache Card */}
+      <div className="rounded-2xl border border-zinc-800/90 bg-[#12131A] p-5 space-y-4 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-teal-500/10 border border-teal-500/30 text-teal-400">
+              <Smartphone className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-white">Local Browser Cache</h3>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Temporary offline data & UI states ({formattedBrowserCache})
+              </p>
+            </div>
+          </div>
 
-          <button
+          <Button
             type="button"
-            onClick={handleClearCache}
-            disabled={clearing}
-            className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-[#16171c] hover:bg-zinc-800 hover:text-white px-4 py-2 text-xs font-semibold text-zinc-300 transition-colors cursor-pointer shrink-0"
+            onClick={() => setClearModalOpen(true)}
+            className="h-8 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 font-bold text-xs px-3.5 shrink-0 cursor-pointer shadow-sm"
           >
-            {clearing ? (
-              <RefreshCcw className="size-3.5 animate-spin text-lime-400" />
-            ) : (
-              <Trash2 className="size-3.5 text-zinc-400" />
-            )}
-            <span>{clearing ? "Clearing..." : "Clear Cache"}</span>
-          </button>
+            <Trash2 className="size-3.5 mr-1.5 text-rose-400" />
+            <span>Clear Cache</span>
+          </Button>
         </div>
       </div>
 
-      {feedback && (
-        <div className="rounded-xl border border-lime-400/30 bg-lime-400/10 px-4 py-2.5 text-xs font-semibold text-lime-400 flex items-center gap-2 animate-in fade-in duration-150">
-          <Check className="size-4 shrink-0" />
-          <span>{feedback}</span>
+      {/* Clear Cache Confirmation Modal */}
+      {clearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-[#12131A] p-6 shadow-2xl space-y-4 text-white">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Trash2 className="size-4 text-lime-400" />
+                Clear Local Cache
+              </h3>
+              <button onClick={() => setClearModalOpen(false)} className="text-zinc-400 hover:text-white">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              This action will clear non-essential browser cache and temporary session files.
+            </p>
+
+            <div className="rounded-xl border border-lime-400/20 bg-lime-400/5 p-3 text-[11px] text-zinc-300 space-y-1">
+              <p className="font-bold text-lime-400">What will NOT be deleted:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-zinc-400">
+                <li>Tasks, reminders & calendar events</li>
+                <li>Money ledger entries & contact directory</li>
+                <li>AI chat history & account preferences</li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setClearModalOpen(false)}
+                className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearCache}
+                disabled={clearing}
+                className="rounded-xl bg-lime-400 px-5 py-2 text-xs font-bold text-black hover:bg-lime-300 disabled:opacity-50 cursor-pointer shadow-lg shadow-lime-400/20"
+              >
+                {clearing ? "Clearing..." : "Clear Cache Now"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -10,13 +10,18 @@ import {
   cancelLedgerItem,
   getContactBalance,
   getPaymentsForLedgerItem,
+  getUserLedgerSummary,
+  deleteLedgerItem,
+  reopenLedgerItem,
+  updateLedgerItem,
 } from "../services/money.service.js";
 
 export const moneyRouter = Router();
 moneyRouter.use(requireSession);
 
 const createLedgerItemSchema = z.object({
-  contactId: z.string().uuid(),
+  contactId: z.string().optional().nullable(),
+  personName: z.string().optional().nullable(),
   direction: z.enum(["receivable", "payable"]),
   amount: z.number().positive(),
   currency: z.string().optional(),
@@ -24,6 +29,7 @@ const createLedgerItemSchema = z.object({
   description: z.string().trim().optional().nullable(),
   notes: z.string().trim().optional().nullable(),
   dueAt: z.string().optional().nullable(),
+  reminderAt: z.string().optional().nullable(),
   taskId: z.string().uuid().optional().nullable(),
   reminderId: z.string().uuid().optional().nullable(),
 });
@@ -39,6 +45,15 @@ const markPaidSchema = z.object({
   notes: z.string().trim().optional().nullable(),
 });
 
+moneyRouter.get("/money/summary", async (req, res) => {
+  try {
+    const summary = await getUserLedgerSummary(req.authContext!.authUserId);
+    res.json({ summary });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || "Failed to fetch ledger summary" });
+  }
+});
+
 moneyRouter.post("/money", async (req, res) => {
   const parsed = createLedgerItemSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -50,6 +65,7 @@ moneyRouter.post("/money", async (req, res) => {
     const item = await createLedgerItem(req.authContext!.authUserId, {
       ...parsed.data,
       dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null,
+      reminderAt: parsed.data.reminderAt ? new Date(parsed.data.reminderAt) : null,
     });
     res.status(201).json({ ledgerItem: item });
   } catch (error: any) {
@@ -126,6 +142,41 @@ moneyRouter.post("/money/:id/cancel", async (req, res) => {
     res.json({ ledgerItem: item });
   } catch (error: any) {
     res.status(400).json({ error: error?.message || "Failed to cancel ledger item" });
+  }
+});
+
+moneyRouter.post("/money/:id/reopen", async (req, res) => {
+  try {
+    const item = await reopenLedgerItem(req.authContext!.authUserId, req.params.id);
+    res.json({ ledgerItem: item });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || "Failed to reopen ledger item" });
+  }
+});
+
+moneyRouter.patch("/money/:id", async (req, res) => {
+  try {
+    const updates: any = {};
+    if (typeof req.body?.title === "string") updates.title = req.body.title;
+    if (typeof req.body?.amount === "number") updates.amount = req.body.amount;
+    if (["receivable", "payable"].includes(req.body?.direction)) updates.direction = req.body.direction;
+    if (req.body?.dueAt !== undefined) updates.dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
+    if (typeof req.body?.notes === "string" || req.body?.notes === null) updates.notes = req.body.notes;
+    if (typeof req.body?.contactId === "string" || req.body?.contactId === null) updates.contactId = req.body.contactId;
+
+    const item = await updateLedgerItem(req.authContext!.authUserId, req.params.id, updates);
+    res.json({ ledgerItem: item });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || "Failed to update ledger item" });
+  }
+});
+
+moneyRouter.delete("/money/:id", async (req, res) => {
+  try {
+    const success = await deleteLedgerItem(req.authContext!.authUserId, req.params.id);
+    res.json({ success });
+  } catch (error: any) {
+    res.status(400).json({ error: error?.message || "Failed to delete ledger item" });
   }
 });
 

@@ -1,10 +1,26 @@
 import { apiFetch } from "./api";
 import { LedgerItem, PaymentTransaction, ContactBalance, LedgerDirection, LedgerStatus } from "./types";
 
+export interface UserLedgerSummary {
+  totalReceivables: number;
+  totalPayables: number;
+  netBalance: number;
+  activeCount: number;
+  unpaidCount: number;
+  paidCount: number;
+}
+
+export async function fetchLedgerSummary(
+  token: string,
+): Promise<{ summary: UserLedgerSummary }> {
+  return apiFetch<{ summary: UserLedgerSummary }>("/api/money/summary", { token });
+}
+
 export async function createLedgerItem(
   token: string,
   body: {
-    contactId: string;
+    contactId?: string | null;
+    personName?: string | null;
     direction: LedgerDirection;
     amount: number;
     currency?: string;
@@ -12,6 +28,7 @@ export async function createLedgerItem(
     description?: string | null;
     notes?: string | null;
     dueAt?: string | null;
+    reminderAt?: string | null;
     taskId?: string | null;
     reminderId?: string | null;
   },
@@ -20,6 +37,45 @@ export async function createLedgerItem(
     method: "POST",
     token,
     body,
+  });
+}
+
+export async function updateLedgerItemApi(
+  token: string,
+  id: string,
+  body: {
+    title?: string;
+    amount?: number;
+    direction?: LedgerDirection;
+    dueAt?: string | null;
+    notes?: string | null;
+    contactId?: string | null;
+  },
+): Promise<{ ledgerItem: LedgerItem }> {
+  return apiFetch<{ ledgerItem: LedgerItem }>(`/api/money/${id}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export async function deleteLedgerItemApi(
+  token: string,
+  id: string,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/money/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function reopenLedgerItemApi(
+  token: string,
+  id: string,
+): Promise<{ ledgerItem: LedgerItem }> {
+  return apiFetch<{ ledgerItem: LedgerItem }>(`/api/money/${id}/reopen`, {
+    method: "POST",
+    token,
   });
 }
 

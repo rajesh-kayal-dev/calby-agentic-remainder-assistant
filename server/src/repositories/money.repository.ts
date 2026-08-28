@@ -320,3 +320,97 @@ export async function getContactBalanceFromDb(
     currency: "INR",
   };
 }
+
+export interface UserLedgerSummary {
+  totalReceivables: number;
+  totalPayables: number;
+  netBalance: number;
+  activeCount: number;
+  unpaidCount: number;
+  paidCount: number;
+}
+
+export async function getUserLedgerSummaryFromDb(
+  authUserId: string,
+): Promise<UserLedgerSummary> {
+  const res = await getPool().query(
+    `
+    SELECT 
+      COALESCE(SUM(CASE WHEN direction = 'receivable' AND status IN ('pending', 'partially_paid') THEN remaining_amount ELSE 0 END), 0) as receivables,
+      COALESCE(SUM(CASE WHEN direction = 'payable' AND status IN ('pending', 'partially_paid') THEN remaining_amount ELSE 0 END), 0) as payables,
+      COUNT(CASE WHEN status IN ('pending', 'partially_paid') THEN 1 END) as active_count,
+      COUNT(CASE WHEN status IN ('pending', 'partially_paid') THEN 1 END) as unpaid_count,
+      COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count
+    FROM ledger_items
+    WHERE auth_user_id = $1 AND status != 'cancelled'
+    `,
+    [authUserId],
+  );
+
+  const receivables = parseFloat(res.rows[0].receivables || "0");
+  const payables = parseFloat(res.rows[0].payables || "0");
+  const activeCount = parseInt(res.rows[0].active_count || "0", 10);
+  const unpaidCount = parseInt(res.rows[0].unpaid_count || "0", 10);
+  const paidCount = parseInt(res.rows[0].paid_count || "0", 10);
+
+  return {
+    totalReceivables: receivables,
+    totalPayables: payables,
+    netBalance: receivables - payables,
+    activeCount,
+    unpaidCount,
+    paidCount,
+  };
+}
+
+export async function deleteLedgerItemFromDb(
+  authUserId: string,
+  id: string,
+): Promise<boolean> {
+  const res = await getPool().query(
+    `DELETE FROM ledger_items WHERE id = $1 AND auth_user_id = $2`,
+    [id, authUserId],
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function reopenLedgerItemInDb(
+  authUserId: string,
+  id: string,
+): Promise<LedgerItem | null> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const lockRes = await client.query(
+      `SELECT * FROM ledger_items WHERE id = $1 AND auth_user_id = $2 FOR UPDATE`,
+      [id, authUserId],
+    );
+    const item = lockRes.rows[0];
+    if (!item) {
+      throw new Error("Ledger item not found or access denied");
+    }
+    const res = await client.query(
+      `
+      UPDATE ledger_items
+      SET status = 'pending',
+          remaining_amount = amount,
+          paid_at = NULL,
+          updated_at = NOW()
+      WHERE id = $1 AND auth_user_id = $2
+      RETURNING *
+      `,
+      [id, authUserId],
+    );
+    await client.query(
+      `DELETE FROM ledger_payments WHERE ledger_item_id = $1 AND auth_user_id = $2`,
+      [id, authUserId],
+    );
+    await client.query("COMMIT");
+    return parseLedgerItem(res.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}

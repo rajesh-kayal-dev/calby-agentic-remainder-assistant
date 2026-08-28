@@ -1,12 +1,13 @@
 import { getPool } from "../db/pool.js";
-import { getContact } from "./contact.service.js";
-import { cancelReminder } from "./reminder.service.js";
+import { getContact, findContactsByName, createContact } from "./contact.service.js";
+import { cancelReminder, createReminder } from "./reminder.service.js";
 import {
   LedgerItem,
   LedgerDirection,
   LedgerStatus,
   PaymentTransaction,
   ContactBalance,
+  UserLedgerSummary,
   createLedgerItemInDb,
   updateLedgerItemInDb,
   getLedgerItemFromDb,
@@ -14,12 +15,16 @@ import {
   createPaymentInDb,
   listPaymentsForLedgerItemFromDb,
   getContactBalanceFromDb,
+  getUserLedgerSummaryFromDb,
+  deleteLedgerItemFromDb,
+  reopenLedgerItemInDb,
 } from "../repositories/money.repository.js";
 
 export async function createLedgerItem(
   authUserId: string,
   input: {
-    contactId: string;
+    contactId?: string | null;
+    personName?: string | null;
     direction: LedgerDirection;
     amount: number;
     currency?: string;
@@ -27,12 +32,31 @@ export async function createLedgerItem(
     description?: string | null;
     taskId?: string | null;
     reminderId?: string | null;
+    reminderAt?: Date | null;
     dueAt?: Date | null;
     notes?: string | null;
   },
 ): Promise<LedgerItem> {
-  // Validate contact exists and belongs to the user
-  const contact = await getContact(authUserId, input.contactId);
+  let resolvedContactId = input.contactId || null;
+
+  if (!resolvedContactId && input.personName?.trim()) {
+    const existing = await findContactsByName(authUserId, input.personName.trim());
+    if (existing.length > 0) {
+      resolvedContactId = existing[0].id;
+    } else {
+      const created = await createContact(authUserId, {
+        name: input.personName.trim(),
+        notes: "Added via Money Ledger",
+      });
+      resolvedContactId = created.id;
+    }
+  }
+
+  if (!resolvedContactId) {
+    throw new Error("Contact is required for money ledger items");
+  }
+
+  const contact = await getContact(authUserId, resolvedContactId);
   if (!contact) {
     throw new Error("Contact not found or access denied");
   }
@@ -45,7 +69,90 @@ export async function createLedgerItem(
     throw new Error("Amount must be positive");
   }
 
-  return createLedgerItemInDb(authUserId, input);
+  let finalReminderId = input.reminderId || null;
+  if (!finalReminderId && input.reminderAt) {
+    try {
+      const rem = await createReminder({
+        authUserId,
+        title: `Money Reminder: ${input.title} (${contact.name})`,
+        dueAt: input.reminderAt,
+      });
+      finalReminderId = rem.id;
+    } catch (err) {
+      console.warn("Failed to create linked reminder for money ledger:", err);
+    }
+  }
+
+  return createLedgerItemInDb(authUserId, {
+    ...input,
+    contactId: resolvedContactId,
+    reminderId: finalReminderId,
+  });
+}
+
+export async function getUserLedgerSummary(
+  authUserId: string,
+): Promise<UserLedgerSummary> {
+  return getUserLedgerSummaryFromDb(authUserId);
+}
+
+export async function deleteLedgerItem(
+  authUserId: string,
+  id: string,
+): Promise<boolean> {
+  const existing = await getLedgerItemFromDb(authUserId, id);
+  if (!existing) {
+    throw new Error("Ledger item not found or access denied");
+  }
+
+  if (existing.reminder_id) {
+    try {
+      await cancelReminder(authUserId, existing.reminder_id);
+    } catch {}
+  }
+
+  return deleteLedgerItemFromDb(authUserId, id);
+}
+
+export async function reopenLedgerItem(
+  authUserId: string,
+  id: string,
+): Promise<LedgerItem> {
+  const existing = await getLedgerItemFromDb(authUserId, id);
+  if (!existing) {
+    throw new Error("Ledger item not found or access denied");
+  }
+
+  const reopened = await reopenLedgerItemInDb(authUserId, id);
+  if (!reopened) {
+    throw new Error("Failed to reopen ledger item");
+  }
+  return reopened;
+}
+
+export async function updateLedgerItem(
+  authUserId: string,
+  id: string,
+  updates: {
+    title?: string;
+    amount?: number;
+    direction?: LedgerDirection;
+    dueAt?: Date | null;
+    notes?: string | null;
+    contactId?: string | null;
+    status?: LedgerStatus;
+  },
+): Promise<LedgerItem> {
+  const existing = await getLedgerItemFromDb(authUserId, id);
+  if (!existing) {
+    throw new Error("Ledger item not found or access denied");
+  }
+
+  const updated = await updateLedgerItemInDb(authUserId, id, updates);
+  if (!updated) {
+    throw new Error("Failed to update ledger item");
+  }
+  return updated;
 }
 
 export async function getLedgerItem(

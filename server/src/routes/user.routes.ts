@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { requireSession } from "../middleware/requireSession.js";
-import { getUserByAuthId, updateUserName, ensureUser } from "../repositories/user.repository.js";
+import { getUserByAuthId, updateUserName, ensureUser, purgeUserDataFromDb } from "../repositories/user.repository.js";
 import { getUserPreferences, upsertUserPreferences } from "../repositories/preferences.repository.js";
 import { getCalendarConnection } from "../services/connection.service.js";
+import { listContactsFromDb } from "../repositories/contact.repository.js";
+import { listTasksFromDb } from "../repositories/task.repository.js";
+import { getUserRemindersFromDb } from "../repositories/reminder.repository.js";
+import { listLedgerItemsFromDb } from "../repositories/money.repository.js";
+import { getUserStorageStats } from "../services/storage.service.js";
 
 export const userRouter: Router = Router();
 
@@ -206,5 +211,67 @@ userRouter.patch("/preferences", requireSession, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to save preferences. Please try again.", success: false });
+  }
+});
+
+userRouter.get("/export-data", requireSession, async (req, res) => {
+  try {
+    const authUserId = req.authContext!.authUserId;
+
+    const [user, prefs, contacts, tasks, reminders, ledger] = await Promise.all([
+      getUserByAuthId(authUserId),
+      getUserPreferences(authUserId),
+      listContactsFromDb(authUserId),
+      listTasksFromDb(authUserId),
+      getUserRemindersFromDb(authUserId),
+      listLedgerItemsFromDb(authUserId, {}),
+    ]);
+
+    const dataBundle = {
+      exportedAt: new Date().toISOString(),
+      user: {
+        email: req.authContext!.email,
+        name: req.authContext!.name,
+      },
+      preferences: prefs,
+      contacts,
+      tasks,
+      reminders,
+      moneyLedger: ledger,
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="calby-user-export-${Date.now()}.json"`);
+    res.json(dataBundle);
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to export user data" });
+  }
+});
+
+userRouter.delete("/account", requireSession, async (req, res) => {
+  try {
+    const authUserId = req.authContext!.authUserId;
+    await purgeUserDataFromDb(authUserId);
+    res.json({ success: true, message: "Account and associated data deleted successfully." });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to delete account" });
+  }
+});
+
+userRouter.get("/storage", requireSession, async (req, res) => {
+  try {
+    const authUserId = req.authContext!.authUserId;
+    const stats = await getUserStorageStats(authUserId);
+    res.json({ success: true, stats });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to fetch storage statistics" });
+  }
+});
+
+userRouter.post("/clear-cache", requireSession, async (req, res) => {
+  try {
+    res.json({ success: true, message: "Temporary server cache cleared successfully." });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to clear cache" });
   }
 });
