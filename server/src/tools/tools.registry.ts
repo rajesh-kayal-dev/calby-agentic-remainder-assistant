@@ -38,6 +38,27 @@ import {
   formatPendingSummary,
 } from "../services/personal-assistant.service.js";
 import {
+  handleSearchEmails,
+  handleGetMessage,
+  handleSendEmail,
+} from "./handlers/gmail.handlers.js";
+import {
+  handleSearchFiles,
+  handleGetFile,
+} from "./handlers/drive.handlers.js";
+import {
+  handleSearchNotionPages,
+  handleGetNotionPage,
+  handleCreateNotionPage,
+} from "./handlers/notion.handlers.js";
+import {
+  handleSendSlackMessage,
+  handleSearchSlackMessages,
+} from "./handlers/slack.handlers.js";
+import {
+  handleCreateTeamsMeeting,
+} from "./handlers/teams.handlers.js";
+import {
   generateReport,
   resolveContactByName,
 } from "../services/reports/report-engine.service.js";
@@ -164,18 +185,16 @@ export const TOOLS_REGISTRY: Record<string, BackendToolDefinition> = {
   "gmail.send": {
     id: "gmail.send",
     name: "Send Email",
-    description: "Send an email via Gmail",
+    description: "Send an email via Gmail on behalf of the user",
     category: "COMMUNICATION",
-    requiredConnection: "gmail",
+    requiredConnection: "gmail" as any,
     confirmationRequired: true,
     inputSchema: z.object({
-      to: z.string().email(),
-      subject: z.string().min(1),
-      body: z.string().min(1),
+      to: z.string().min(1).describe("Recipient email address"),
+      subject: z.string().min(1).describe("Email subject line"),
+      body: z.string().min(1).describe("Email body text"),
     }),
-    execute: async () => {
-      throw new Error("Gmail connector required");
-    },
+    execute: async (authUserId, input) => handleSendEmail(authUserId, input),
   },
 
   "whatsapp.send": {
@@ -197,16 +216,85 @@ export const TOOLS_REGISTRY: Record<string, BackendToolDefinition> = {
   "telegram.send": {
     id: "telegram.send",
     name: "Send Telegram Message",
-    description: "Send a Telegram message",
+    description: "Send a Telegram message via Nango to a specified recipient or the user's linked Telegram chat.",
     category: "COMMUNICATION",
     requiredConnection: "telegram",
     confirmationRequired: true,
     inputSchema: z.object({
-      chatId: z.string().min(1),
-      message: z.string().min(1),
+      recipient: z.string().optional().describe("Phone number, contact name, @username, or Chat ID. If omitted, sends to the user's own linked Telegram chat."),
+      chatId: z.string().optional().describe("Alias for recipient/chatId"),
+      message: z.string().min(1).describe("Text message to send"),
     }),
-    execute: async () => {
-      throw new Error("Telegram connector required");
+    execute: async (authUserId, input) => {
+      const rawRecipient = (input.recipient || input.chatId || "").trim();
+      let targetChatId: string | null = null;
+      let displayRecipient = "your Telegram account";
+
+      if (rawRecipient.length > 0) {
+        displayRecipient = rawRecipient;
+
+        // 1. If rawRecipient starts with @ or is a pure numeric ID (e.g. 123456789), use directly
+        if (rawRecipient.startsWith("@") || /^-?\d{5,15}$/.test(rawRecipient)) {
+          targetChatId = rawRecipient;
+        } else {
+          // 2. Search contacts by phone number or name
+          const { listContacts } = await import("../services/contact.service.js");
+          const contacts = await listContacts(authUserId, { search: rawRecipient });
+          const matched = contacts.find((c) => Boolean(c.telegram_id));
+
+          if (matched && matched.telegram_id) {
+            targetChatId = matched.telegram_id;
+            displayRecipient = matched.name || rawRecipient;
+          }
+        }
+      }
+
+      // 3. Fallback to user's own linked Telegram chat if no recipient specified
+      if (!targetChatId) {
+        const { getUserTelegramConnection } = await import("../services/notifications/telegram-connection.service.js");
+        const tgConn = await getUserTelegramConnection(authUserId);
+        if (tgConn.chatId) {
+          targetChatId = tgConn.chatId;
+          displayRecipient = "your linked Telegram chat";
+        } else {
+          const { getIntegrationRow } = await import("../services/integrations/integration.service.js");
+          const row = await getIntegrationRow(authUserId, "telegram");
+          if (row?.metadata && (row.metadata as any).chatId) {
+            targetChatId = (row.metadata as any).chatId;
+            displayRecipient = "your linked Telegram chat";
+          }
+        }
+      }
+
+      // 4. Handle unresolved phone number gracefully without erroring or asking redundant questions
+      if (!targetChatId || /^\+?\d{7,15}$/.test(targetChatId.replace(/\s+/g, ""))) {
+        return {
+          success: false,
+          error: `Telegram Bot API requires a numeric Chat ID or @username to initiate messages. To send messages to ${displayRecipient}, ask them to open @CalbyAssistantBot and press Start, or add their Telegram username to your Calby contacts.`,
+          actionRequired: "LINK_RECIPIENT",
+        };
+      }
+
+      const { proxyRequest } = await import("../services/nango/nango.client.js");
+      const res = await proxyRequest<any>({
+        integrationId: "telegram",
+        connectionId: authUserId,
+        method: "POST",
+        endpoint: "/sendMessage",
+        data: {
+          chat_id: targetChatId,
+          text: input.message,
+        },
+      });
+
+      const messageId = res?.result?.message_id || res?.message_id || "sent";
+
+      return {
+        success: true,
+        message: `Message sent successfully to ${displayRecipient}.`,
+        messageId,
+        recipient: displayRecipient,
+      };
     },
   },
 
@@ -1716,6 +1804,166 @@ ALL recipient and channel resolution is server-side.`,
       });
       return { items };
     },
+  },
+
+  // ========================================================================
+  // GMAIL TOOLS
+  // ========================================================================
+
+  "gmail.search": {
+    id: "gmail.search",
+    name: "Search Emails",
+    description: "Search the user's Gmail inbox using a query string (e.g. from:rahul, subject:invoice, is:unread)",
+    category: "GMAIL",
+    requiredConnection: "gmail" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      query: z.string().min(1).describe("Gmail search query"),
+      maxResults: z.number().min(1).max(20).optional().default(10),
+    }),
+    execute: async (authUserId, input) => handleSearchEmails(authUserId, input),
+  },
+
+  "gmail.get_message": {
+    id: "gmail.get_message",
+    name: "Get Email Message",
+    description: "Retrieve the full content of a specific email by message ID",
+    category: "GMAIL",
+    requiredConnection: "gmail" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      messageId: z.string().min(1).describe("Gmail message ID"),
+    }),
+    execute: async (authUserId, input) => handleGetMessage(authUserId, input),
+  },
+
+  // ========================================================================
+  // GOOGLE DRIVE TOOLS
+  // ========================================================================
+
+  "drive.search": {
+    id: "drive.search",
+    name: "Search Drive Files",
+    description: "Search files in the user's Google Drive by name or content",
+    category: "DRIVE",
+    requiredConnection: "google-drive" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      query: z.string().min(1).describe("Search query for Drive files"),
+      maxResults: z.number().min(1).max(20).optional().default(10),
+    }),
+    execute: async (authUserId, input) => handleSearchFiles(authUserId, input),
+  },
+
+  "drive.get_file": {
+    id: "drive.get_file",
+    name: "Get Drive File",
+    description: "Retrieve metadata and content of a specific file from Google Drive",
+    category: "DRIVE",
+    requiredConnection: "google-drive" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      fileId: z.string().min(1).describe("Google Drive file ID"),
+    }),
+    execute: async (authUserId, input) => handleGetFile(authUserId, input),
+  },
+
+  // ========================================================================
+  // NOTION TOOLS
+  // ========================================================================
+
+  "notion.search": {
+    id: "notion.search",
+    name: "Search Notion Pages",
+    description: "Search the user's Notion workspace for pages and databases",
+    category: "NOTION",
+    requiredConnection: "notion" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      query: z.string().min(1).describe("Search query for Notion"),
+      maxResults: z.number().min(1).max(20).optional().default(10),
+    }),
+    execute: async (authUserId, input) => handleSearchNotionPages(authUserId, input),
+  },
+
+  "notion.get_page": {
+    id: "notion.get_page",
+    name: "Get Notion Page",
+    description: "Retrieve the content of a specific Notion page",
+    category: "NOTION",
+    requiredConnection: "notion" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      pageId: z.string().min(1).describe("Notion page ID"),
+    }),
+    execute: async (authUserId, input) => handleGetNotionPage(authUserId, input),
+  },
+
+  "notion.create_page": {
+    id: "notion.create_page",
+    name: "Create Notion Page",
+    description: "Create a new page in the user's Notion workspace under a specified parent page",
+    category: "NOTION",
+    requiredConnection: "notion" as any,
+    confirmationRequired: true,
+    inputSchema: z.object({
+      title: z.string().min(1).describe("Page title"),
+      content: z.string().min(1).describe("Page content text"),
+      parentPageId: z.string().optional().describe("Parent page ID (required)"),
+    }),
+    execute: async (authUserId, input) => handleCreateNotionPage(authUserId, input),
+  },
+
+  // ========================================================================
+  // SLACK TOOLS
+  // ========================================================================
+
+  "slack.send_message": {
+    id: "slack.send_message",
+    name: "Send Slack Message",
+    description: "Send a message to a Slack channel or user",
+    category: "SLACK",
+    requiredConnection: "slack" as any,
+    confirmationRequired: true,
+    inputSchema: z.object({
+      channel: z.string().min(1).describe("Slack channel name (e.g. #general) or channel ID"),
+      text: z.string().min(1).describe("Message text"),
+    }),
+    execute: async (authUserId, input) => handleSendSlackMessage(authUserId, input),
+  },
+
+  "slack.search_messages": {
+    id: "slack.search_messages",
+    name: "Search Slack Messages",
+    description: "Search messages across the user's Slack workspace",
+    category: "SLACK",
+    requiredConnection: "slack" as any,
+    confirmationRequired: false,
+    inputSchema: z.object({
+      query: z.string().min(1).describe("Slack search query"),
+      maxResults: z.number().min(1).max(20).optional().default(10),
+    }),
+    execute: async (authUserId, input) => handleSearchSlackMessages(authUserId, input),
+  },
+
+  // ========================================================================
+  // MICROSOFT TEAMS TOOLS
+  // ========================================================================
+
+  "teams.create_meeting": {
+    id: "teams.create_meeting",
+    name: "Create Teams Meeting",
+    description: "Create a Microsoft Teams online meeting with optional attendees",
+    category: "TEAMS",
+    requiredConnection: "microsoft-teams" as any,
+    confirmationRequired: true,
+    inputSchema: z.object({
+      subject: z.string().min(1).describe("Meeting subject/title"),
+      startIso: z.string().describe("Start time as ISO-8601 datetime"),
+      endIso: z.string().describe("End time as ISO-8601 datetime"),
+      attendees: z.array(z.string().email()).optional().describe("Attendee email addresses"),
+    }),
+    execute: async (authUserId, input) => handleCreateTeamsMeeting(authUserId, input),
   },
 };
 

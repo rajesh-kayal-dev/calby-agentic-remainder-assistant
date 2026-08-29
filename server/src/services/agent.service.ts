@@ -85,8 +85,28 @@ function getProgressLabel(toolId: string): string {
       return "Rescheduling your event...";
     case "calendar.delete_event":
       return "Preparing cancellation...";
+    case "gmail.search":
+      return "Searching your emails...";
+    case "gmail.get_message":
+      return "Reading email...";
     case "gmail.send":
       return "Preparing email...";
+    case "drive.search":
+      return "Searching your Drive...";
+    case "drive.get_file":
+      return "Reading file...";
+    case "notion.search":
+      return "Searching Notion...";
+    case "notion.get_page":
+      return "Reading Notion page...";
+    case "notion.create_page":
+      return "Creating Notion page...";
+    case "slack.send_message":
+      return "Sending Slack message...";
+    case "slack.search_messages":
+      return "Searching Slack...";
+    case "teams.create_meeting":
+      return "Creating Teams meeting...";
     case "whatsapp.send":
       return "Preparing WhatsApp message...";
     case "telegram.send":

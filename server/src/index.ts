@@ -1,6 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { closePool, getPool } from "./db/pool.js";
 import { connectionRouter } from "./routes/connection.routes.js";
 import { agentRoutes } from "./routes/agent.routes.js";
@@ -14,8 +15,11 @@ import { taskRouter } from "./routes/task.routes.js";
 import { calendarRouter } from "./routes/calendar.routes.js";
 import { webhookRouter } from "./routes/webhook.routes.js";
 import { moneyRouter } from "./routes/money.routes.js";
+import { integrationRouter } from "./routes/integration.routes.js";
 import { mountMcpServer } from "./mcp/mount.js";
 import { globalScheduler } from "./services/reminder-scheduler.service.js";
+import { requestIdMiddleware } from "./middleware/request-id.js";
+import { rateLimiter } from "./middleware/rate-limiter.js";
 
 // Global process error handlers to prevent unhandled database drops from crashing process
 process.on("uncaughtException", (err) => {
@@ -36,20 +40,32 @@ const allowedOrigins = [
   "http://127.0.0.1:3000",
 ];
 
+// Security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Managed by frontend framework
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
+// Request ID for observability
+app.use(requestIdMiddleware);
+
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow server-to-server (no origin) and allowed origins
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin) || origin.startsWith("chrome-extension://")) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
   }),
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 app.get(["/health", "/api/health"], async (_req, res) => {
   try {
@@ -64,9 +80,17 @@ app.get(["/health", "/api/health"], async (_req, res) => {
   }
 });
 
-app.use("/api/webhooks", webhookRouter);
+// Webhook routes — public, no session required, rate limited
+app.use("/api/webhooks", rateLimiter({ maxRequests: 100, windowMs: 60_000 }), webhookRouter);
+
+// Agent chat — rate limited to prevent abuse
+app.use("/api/agent", rateLimiter({ maxRequests: 30, windowMs: 60_000 }), agentRoutes);
+
+// Integration management — Nango-backed
+app.use("/api/integrations", integrationRouter);
+
+// Existing routes
 app.use("/api/connections", connectionRouter);
-app.use("/api/agent", agentRoutes);
 app.use("/api/user", userRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/llm", llmRouter);

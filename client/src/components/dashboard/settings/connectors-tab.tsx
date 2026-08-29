@@ -18,6 +18,8 @@ import {
   Lock,
   Layers,
   ArrowRight,
+  Unlink,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -44,12 +46,20 @@ import {
   fetchGoogleAuthUrlApi,
   fetchGmailStatusApi,
   disconnectGmailApi,
+  connectIntegrationApi,
+  disconnectIntegrationApi,
+  fetchAllIntegrationsApi,
+  callbackIntegrationApi,
 } from "@/lib/connections";
 import { ConnectionInfo } from "@/lib/types";
+
+import { DisconnectConfirmModal } from "./disconnect-confirm-modal";
+import { LoaderCircle } from "lucide-react";
 
 interface ConnectorsTabProps {
   sessionToken: string;
   onOpenWorkspace?: () => void;
+  onNavigateToChat?: (provider?: string) => void;
 }
 
 type FilterCategory = "All" | "Productivity" | "Communication" | "Work" | "Knowledge";
@@ -67,12 +77,26 @@ interface IntegrationItem {
 export function ConnectorsTab({
   sessionToken,
   onOpenWorkspace,
+  onNavigateToChat,
 }: ConnectorsTabProps) {
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterCategory>("All");
   const [guideModalOpen, setGuideModalOpen] = useState(false);
   const [genericModalIntegration, setGenericModalIntegration] = useState<IntegrationItem | null>(null);
+
+  // Disconnect Confirmation Modal State
+  const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
+  const [disconnectTarget, setDisconnectTarget] = useState<{
+    id: string;
+    provider: string;
+    name: string;
+  } | null>(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+
+  // Connection Tracking State
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [lastConnectedProvider, setLastConnectedProvider] = useState<string | null>(null);
 
   // Real Connection States
   const [connection, setConnection] = useState<ConnectionInfo | null>(null);
@@ -85,7 +109,7 @@ export function ConnectorsTab({
     status: "connected" | "disconnected" | "pending";
     chatId?: string | null;
     username?: string | null;
-  }>({ connected: true, status: "connected" });
+  }>({ connected: false, status: "disconnected" });
   const [tgLoading, setTgLoading] = useState(false);
   const [tgModalOpen, setTgModalOpen] = useState(false);
   const [tgIntent, setTgIntent] = useState<{ token: string; botUrl: string } | null>(null);
@@ -120,16 +144,80 @@ export function ConnectorsTab({
     notion: false,
   });
 
+  // Zero-flicker local status cache
+  const [nangoStatuses, setNangoStatuses] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const cached = localStorage.getItem("calby_nango_status_cache");
+      return cached ? JSON.parse(cached) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [isInitialChecking, setIsInitialChecking] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const cached = localStorage.getItem("calby_nango_status_cache");
+      return !cached || Object.keys(JSON.parse(cached)).length === 0;
+    } catch {
+      return true;
+    }
+  });
+
+  const loadAllIntegrations = async () => {
+    if (!sessionToken) return;
+    try {
+      const res = await fetchAllIntegrationsApi(sessionToken);
+      if (res.integrations && Array.isArray(res.integrations)) {
+        const statusMap: Record<string, boolean> = {};
+        for (const item of res.integrations) {
+          const isConn = item.status === "connected";
+          statusMap[item.provider] = isConn;
+          if (item.provider === "google-calendar") {
+            setConnection({ status: isConn ? "connected" : "disconnected" } as any);
+          }
+          if (item.provider === "gmail") {
+            setGmailConnection({ connected: isConn });
+          }
+          if (item.provider === "google-drive") {
+            setSimulatedConnections((prev) => ({ ...prev, drive: isConn }));
+          }
+          if (item.provider === "google-docs") {
+            setSimulatedConnections((prev) => ({ ...prev, docs: isConn }));
+          }
+          if (item.provider === "notion") {
+            setSimulatedConnections((prev) => ({ ...prev, notion: isConn }));
+          }
+          if (item.provider === "slack") {
+            setSimulatedConnections((prev) => ({ ...prev, slack: isConn }));
+          }
+        }
+        setNangoStatuses((prev) => {
+          const merged = { ...prev, ...statusMap };
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("calby_nango_status_cache", JSON.stringify(merged));
+            } catch {}
+          }
+          return merged;
+        });
+      }
+    } catch {
+      // Keep cached state on network glitch
+    } finally {
+      setIsInitialChecking(false);
+    }
+  };
+
   const loadStatus = async () => {
     if (!sessionToken) return;
     setLoading(true);
     try {
-      const data = await fetchCalendarConnection(sessionToken);
-      setConnection(data);
-    } catch {
-      setConnection({ status: "connected" } as any);
+      await loadAllIntegrations();
     } finally {
       setLoading(false);
+      setIsInitialChecking(false);
     }
   };
 
@@ -157,7 +245,7 @@ export function ConnectorsTab({
         setTgConnection(res.connection);
       }
     } catch {
-      setTgConnection({ connected: true, status: "connected" });
+      setTgConnection({ connected: false, status: "disconnected" });
     } finally {
       setTgLoading(false);
     }
@@ -183,17 +271,90 @@ export function ConnectorsTab({
     loadTgStatus();
     loadWaStatus();
     loadGmailStatus();
+
+    // Auto-refresh when user returns from Nango OAuth tab
+    const handleFocus = () => {
+      loadAllIntegrations();
+      loadStatus();
+      loadGmailStatus();
+      loadTgStatus();
+      loadWaStatus();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
   }, [sessionToken]);
 
-  const handleConnectCalendar = async () => {
+  const handleConnectNango = async (providerName: string, displayName?: string, cardId?: string) => {
+    const card = cardId || providerName;
+    setConnectingProvider(card);
     setBusy(true);
     try {
-      await connectCalendar(sessionToken);
+      const res = await connectIntegrationApi(sessionToken, providerName);
+      if (res.url) {
+        const width = 600;
+        const height = 720;
+        const left = window.screenX + (window.innerWidth - width) / 2;
+        const top = window.screenY + (window.innerHeight - height) / 2;
+
+        const popup = window.open(
+          res.url,
+          "CalbyNangoConnect",
+          `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`,
+        );
+
+        if (!popup || popup.closed || typeof popup.closed === "undefined") {
+          // Fallback if popup blocked
+          window.location.href = res.url;
+          return;
+        }
+
+        const checkTimer = setInterval(async () => {
+          if (popup.closed) {
+            clearInterval(checkTimer);
+            setConnectingProvider(null);
+            setBusy(false);
+
+            try {
+              await callbackIntegrationApi(sessionToken, providerName);
+            } catch {
+              // Non-blocking fallback handled by sync
+            }
+
+            setNangoStatuses((prev) => {
+              const updated = { ...prev, [providerName]: true };
+              if (typeof window !== "undefined") {
+                try {
+                  localStorage.setItem("calby_nango_status_cache", JSON.stringify(updated));
+                } catch {}
+              }
+              return updated;
+            });
+            setLastConnectedProvider(card);
+            setSyncFeedback(`${displayName || providerName} connected successfully.`);
+            setTimeout(() => setSyncFeedback(""), 5000);
+            await loadAllIntegrations();
+          }
+        }, 1000);
+      } else {
+        alert(`We couldn't connect ${displayName || providerName}. Please try again.`);
+        setConnectingProvider(null);
+        setBusy(false);
+      }
     } catch {
-      // Connect error handled
-    } finally {
+      alert(`We couldn't connect ${displayName || providerName}. Please try again.`);
+      setConnectingProvider(null);
       setBusy(false);
     }
+  };
+
+  const handleConnectCalendar = async () => {
+    await handleConnectNango("google-calendar", "Google Calendar", "calendar");
   };
 
   const handleRefreshCalendar = async () => {
@@ -212,29 +373,7 @@ export function ConnectorsTab({
   };
 
   const handleConnectGmail = async () => {
-    setGmailBusy(true);
-    try {
-      const res = await fetchGoogleAuthUrlApi(sessionToken);
-      if (res.url) {
-        window.location.href = res.url;
-      }
-    } catch (err: any) {
-      alert(err?.message || "Failed to generate Google OAuth URL");
-    } finally {
-      setGmailBusy(false);
-    }
-  };
-
-  const handleDisconnectGmail = async () => {
-    setGmailBusy(true);
-    try {
-      await disconnectGmailApi(sessionToken);
-      setGmailConnection({ connected: false });
-    } catch {
-      setGmailConnection({ connected: false });
-    } finally {
-      setGmailBusy(false);
-    }
+    await handleConnectNango("gmail", "Gmail", "gmail");
   };
 
   const handleStartTgConnect = async () => {
@@ -244,15 +383,6 @@ export function ConnectorsTab({
       setTgModalOpen(true);
     } catch {
       setTgModalOpen(true);
-    }
-  };
-
-  const handleTgDisconnect = async () => {
-    try {
-      await disconnectTelegramApi(sessionToken);
-      setTgConnection({ connected: false, status: "disconnected" });
-    } catch {
-      setTgConnection({ connected: false, status: "disconnected" });
     }
   };
 
@@ -274,6 +404,8 @@ export function ConnectorsTab({
       setWaConnection({ connected: true, status: "connected", phoneNumberId: waPhoneNumberId });
       setWaModalOpen(false);
       setWaAccessToken("");
+      setSyncFeedback("WhatsApp configured successfully.");
+      setTimeout(() => setSyncFeedback(""), 3000);
     } catch (err: any) {
       setWaConnection({ connected: true, status: "connected", phoneNumberId: waPhoneNumberId });
       setWaModalOpen(false);
@@ -282,12 +414,92 @@ export function ConnectorsTab({
     }
   };
 
-  const handleWaDisconnect = async () => {
+  const handleOpenDisconnectModal = (item: IntegrationItem) => {
+    const providerMap: Record<string, string> = {
+      calendar: "google-calendar",
+      gmail: "gmail",
+      drive: "google-drive",
+      docs: "google-docs",
+      notion: "notion",
+      slack: "slack",
+      whatsapp: "whatsapp",
+      telegram: "telegram",
+    };
+    setDisconnectTarget({
+      id: item.id,
+      provider: providerMap[item.id] || item.id,
+      name: item.name,
+    });
+    setDisconnectModalOpen(true);
+  };
+
+  const handleConfirmDisconnect = async () => {
+    if (!disconnectTarget) return;
+    setDisconnectBusy(true);
+    const { id, provider, name } = disconnectTarget;
     try {
-      await disconnectWhatsAppApi(sessionToken);
-      setWaConnection({ connected: false, status: "disconnected" });
+      if (id === "whatsapp") {
+        await disconnectWhatsAppApi(sessionToken);
+        setWaConnection({ connected: false, status: "disconnected" });
+      } else {
+        await disconnectIntegrationApi(sessionToken, provider);
+        if (id === "telegram") {
+          try {
+            await disconnectTelegramApi(sessionToken);
+          } catch {}
+        }
+      }
+
+      setTgConnection({ connected: false, status: "disconnected" });
+      setSimulatedConnections((prev) => ({ ...prev, [id]: false, [provider]: false }));
+      setNangoStatuses((prev) => {
+        const next = { ...prev, [id]: false, [provider]: false, telegram: id === "telegram" ? false : prev.telegram };
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("calby_nango_status_cache", JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+
+      setSyncFeedback(`${name} disconnected successfully.`);
+      setTimeout(() => setSyncFeedback(""), 4000);
+      await loadAllIntegrations();
     } catch {
-      setWaConnection({ connected: false, status: "disconnected" });
+      setSyncFeedback(`${name} disconnected.`);
+      setTimeout(() => setSyncFeedback(""), 4000);
+      await loadAllIntegrations();
+    } finally {
+      setDisconnectBusy(false);
+      setDisconnectModalOpen(false);
+      setDisconnectTarget(null);
+    }
+  };
+
+  const handleCardButtonClick = (item: IntegrationItem, isConnected: boolean) => {
+    if (isConnected) {
+      handleOpenDisconnectModal(item);
+      return;
+    }
+
+    if (item.id === "calendar") {
+      handleConnectCalendar();
+    } else if (item.id === "gmail") {
+      handleConnectGmail();
+    } else if (item.id === "telegram") {
+      handleConnectNango("telegram", "Telegram", "telegram");
+    } else if (item.id === "whatsapp") {
+      setWaModalOpen(true);
+    } else if (item.id === "drive") {
+      handleConnectNango("google-drive", "Google Drive", "drive");
+    } else if (item.id === "docs") {
+      handleConnectNango("google-docs", "Google Docs", "docs");
+    } else if (item.id === "notion") {
+      handleConnectNango("notion", "Notion", "notion");
+    } else if (item.id === "slack") {
+      handleConnectNango("slack", "Slack", "slack");
+    } else {
+      setGenericModalIntegration(item);
     }
   };
 
@@ -376,16 +588,28 @@ export function ConnectorsTab({
   // Helper to check connection status of each integration
   const isIntegrationConnected = (id: string): boolean => {
     if (id === "calendar") {
-      return connection ? connection.status === "connected" : true;
+      return nangoStatuses["google-calendar"] ?? (connection ? connection.status === "connected" : false);
     }
     if (id === "gmail") {
-      return gmailConnection.connected;
+      return nangoStatuses["gmail"] ?? gmailConnection.connected;
+    }
+    if (id === "drive") {
+      return nangoStatuses["google-drive"] ?? simulatedConnections.drive ?? false;
+    }
+    if (id === "docs") {
+      return nangoStatuses["google-docs"] ?? simulatedConnections.docs ?? false;
+    }
+    if (id === "notion") {
+      return nangoStatuses["notion"] ?? simulatedConnections.notion ?? false;
+    }
+    if (id === "slack") {
+      return nangoStatuses["slack"] ?? simulatedConnections.slack ?? false;
     }
     if (id === "whatsapp") {
       return waConnection.connected;
     }
     if (id === "telegram") {
-      return tgConnection.connected;
+      return nangoStatuses["telegram"] ?? tgConnection.connected ?? false;
     }
     return Boolean(simulatedConnections[id]);
   };
@@ -410,41 +634,6 @@ export function ConnectorsTab({
       return true;
     });
   }, [activeFilter, searchQuery]);
-
-  const handleCardButtonClick = (item: IntegrationItem, isConnected: boolean) => {
-    if (item.id === "calendar") {
-      if (isConnected) {
-        handleRefreshCalendar();
-      } else {
-        handleConnectCalendar();
-      }
-    } else if (item.id === "gmail") {
-      if (isConnected) {
-        handleDisconnectGmail();
-      } else {
-        handleConnectGmail();
-      }
-    } else if (item.id === "telegram") {
-      if (isConnected) {
-        handleTgDisconnect();
-      } else {
-        handleStartTgConnect();
-      }
-    } else if (item.id === "whatsapp") {
-      if (isConnected) {
-        setWaModalOpen(true);
-      } else {
-        setWaModalOpen(true);
-      }
-    } else {
-      // Toggle simulated connection for Slack, Drive, Docs, Notion or open prompt
-      if (isConnected) {
-        setSimulatedConnections((prev) => ({ ...prev, [item.id]: false }));
-      } else {
-        setGenericModalIntegration(item);
-      }
-    }
-  };
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6 pb-12 select-none">
@@ -524,9 +713,21 @@ export function ConnectorsTab({
       </div>
 
       {syncFeedback && (
-        <div className="rounded-xl border border-lime-400/30 bg-lime-400/10 px-3.5 py-2 text-xs font-medium text-lime-400 flex items-center gap-2 animate-in fade-in duration-150">
-          <Check className="size-4 shrink-0" />
-          <span>{syncFeedback}</span>
+        <div className="rounded-xl border border-lime-400/30 bg-lime-400/10 px-4 py-2.5 text-xs font-medium text-lime-400 flex items-center justify-between gap-3 animate-in fade-in duration-150">
+          <div className="flex items-center gap-2">
+            <Check className="size-4 shrink-0" />
+            <span>{syncFeedback}</span>
+          </div>
+          {onNavigateToChat && syncFeedback.toLowerCase().includes("connected successfully") && (
+            <button
+              type="button"
+              onClick={() => onNavigateToChat(lastConnectedProvider || undefined)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-lime-400 text-zinc-950 px-3 py-1 text-xs font-bold hover:bg-lime-300 transition-colors shadow-sm cursor-pointer shrink-0"
+            >
+              <MessageSquare className="size-3" />
+              <span>Try it in Chat</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -550,6 +751,7 @@ export function ConnectorsTab({
           filteredIntegrations.map((item) => {
             const IconComponent = item.icon;
             const connected = isIntegrationConnected(item.id);
+            const isConnecting = connectingProvider === item.id;
 
             return (
               <div
@@ -575,37 +777,68 @@ export function ConnectorsTab({
                   </div>
                 </div>
 
-                {/* Right Side: Status Indicator + Action Button */}
-                <div className="flex items-center justify-between sm:justify-end gap-5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/50">
+                {/* Right Side: Status Indicator + Action Buttons */}
+                <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/50">
                   {/* Connection Status Pill */}
-                  {connected ? (
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-lime-400">
-                      <span className="size-2 rounded-full bg-lime-400 shadow-[0_0_8px_rgba(163,230,53,0.8)]" />
+                  {isInitialChecking ? (
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 mr-1">
+                      <LoaderCircle className="size-3 animate-spin text-lime-400" />
+                      <span>Checking connection...</span>
+                    </div>
+                  ) : connected ? (
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 mr-1">
+                      <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
                       <span>Connected</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-400">
-                      <span className="size-2 rounded-full bg-zinc-500" />
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 mr-1">
+                      <span className="size-2 rounded-full bg-zinc-600" />
                       <span>Not connected</span>
                     </div>
                   )}
 
-                  {/* Button */}
+                  {/* Actions */}
                   {connected ? (
-                    <button
-                      type="button"
-                      onClick={() => handleCardButtonClick(item, true)}
-                      className="rounded-full border border-lime-400 text-lime-400 bg-transparent hover:bg-lime-400/10 px-5 py-1.5 text-xs font-semibold transition-all cursor-pointer min-w-[88px] text-center"
-                    >
-                      Manage
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {onNavigateToChat && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateToChat(item.id)}
+                          className="rounded-full border border-lime-400/40 bg-lime-400/10 hover:bg-lime-400/20 text-lime-400 px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                          title={`Try ${item.name} in Chat`}
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span className="hidden sm:inline">Try in Chat</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCardButtonClick(item, true)}
+                        className="group/btn rounded-full border border-red-500/30 text-red-400/90 bg-red-500/5 hover:bg-red-500/15 hover:border-red-400 hover:text-red-300 px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 shadow-sm"
+                        title={`Disconnect ${item.name}`}
+                      >
+                        <Unlink className="size-3.5 opacity-70 group-hover/btn:opacity-100 transition-opacity" />
+                        <span>Disconnect</span>
+                      </button>
+                    </div>
                   ) : (
                     <button
                       type="button"
+                      disabled={isConnecting}
                       onClick={() => handleCardButtonClick(item, false)}
-                      className="rounded-full bg-lime-400 hover:bg-lime-300 text-zinc-950 px-6 py-1.5 text-xs font-bold transition-all cursor-pointer min-w-[88px] text-center shadow-[0_0_12px_rgba(163,230,53,0.2)]"
+                      className="rounded-full bg-lime-400 hover:bg-lime-300 text-zinc-950 px-5 py-1.5 text-xs font-bold transition-all cursor-pointer min-w-[95px] text-center shadow-[0_0_12px_rgba(163,230,53,0.25)] flex items-center justify-center gap-1.5 disabled:opacity-60"
                     >
-                      Connect
+                      {isConnecting ? (
+                        <>
+                          <LoaderCircle className="size-3.5 animate-spin" />
+                          <span>Connecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Link2 className="size-3.5" />
+                          <span>Connect</span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>
@@ -614,6 +847,20 @@ export function ConnectorsTab({
           })
         )}
       </div>
+
+      {/* DISCONNECT CONFIRMATION MODAL */}
+      <DisconnectConfirmModal
+        isOpen={disconnectModalOpen}
+        providerName={disconnectTarget?.name || "Integration"}
+        isBusy={disconnectBusy}
+        onConfirm={handleConfirmDisconnect}
+        onCancel={() => {
+          if (!disconnectBusy) {
+            setDisconnectModalOpen(false);
+            setDisconnectTarget(null);
+          }
+        }}
+      />
 
       {/* FOOTER NOTICE */}
       <div className="pt-6 text-center">

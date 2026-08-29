@@ -123,3 +123,69 @@ export async function disconnectGmailApi(token: string) {
     token,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Generic Nango-backed Integrations API
+// ---------------------------------------------------------------------------
+
+export interface GenericIntegrationStatus {
+  provider: string;
+  status: "connected" | "disconnected" | "error" | "pending";
+  label: string;
+  capabilities: string[];
+  connectedAt?: string;
+  email?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export async function fetchAllIntegrationsApi(token: string) {
+  return apiFetch<{ integrations: GenericIntegrationStatus[] }>("/api/integrations", {
+    token,
+  });
+}
+
+export async function fetchIntegrationStatusApi(token: string, provider: string) {
+  return apiFetch<{ integration: GenericIntegrationStatus }>(
+    `/api/integrations/${encodeURIComponent(provider)}/status`,
+    { token },
+  );
+}
+
+export async function connectIntegrationApi(token: string, provider: string) {
+  return apiFetch<{
+    method: string;
+    provider: string;
+    url?: string;
+    nangoConnectionId?: string;
+    message?: string;
+  }>(`/api/integrations/${encodeURIComponent(provider)}/connect`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function callbackIntegrationApi(
+  token: string,
+  provider: string,
+  body?: { nangoConnectionId?: string },
+) {
+  return apiFetch<{ success: boolean; integration: GenericIntegrationStatus }>(
+    `/api/integrations/${encodeURIComponent(provider)}/callback`,
+    {
+      method: "POST",
+      token,
+      body,
+    },
+  );
+}
+
+export async function disconnectIntegrationApi(token: string, provider: string) {
+  return apiFetch<{ success: boolean; integration: GenericIntegrationStatus }>(
+    `/api/integrations/${encodeURIComponent(provider)}/disconnect`,
+    {
+      method: "POST",
+      token,
+    },
+  );
+}
+

@@ -1,5 +1,7 @@
 import { getPool } from "../db/pool.js";
 import { getCalendarAccessToken } from "../services/token.service.js";
+import { getIntegrationStatus } from "../services/integrations/integration.service.js";
+import { NANGO_OAUTH_PROVIDERS } from "../services/nango/nango.types.js";
 import { TOOLS_REGISTRY, ToolExecutionContext } from "./tools.registry.js";
 
 export type NormalizedToolResult<T = any> = {
@@ -25,6 +27,7 @@ async function checkConnectorAvailable(
 ): Promise<{ connected: boolean; provider?: string }> {
   if (!requiredConnection) return { connected: true };
 
+  // Google Calendar — uses the combined Nango-first + legacy token strategy
   if (requiredConnection === "google_calendar") {
     try {
       const token = await getCalendarAccessToken(authUserId);
@@ -34,7 +37,47 @@ async function checkConnectorAvailable(
     }
   }
 
-  // Gmail, WhatsApp, Telegram integrations return CONNECTION_REQUIRED in Step 2
+  // Nango-managed OAuth providers — check via integration service
+  if (NANGO_OAUTH_PROVIDERS.has(requiredConnection)) {
+    try {
+      const status = await getIntegrationStatus(authUserId, requiredConnection);
+      return {
+        connected: status.status === "connected",
+        provider: requiredConnection,
+      };
+    } catch {
+      return { connected: false, provider: requiredConnection };
+    }
+  }
+
+  // WhatsApp, Telegram — check existing tables
+  if (requiredConnection === "whatsapp") {
+    try {
+      const res = await getPool().query(
+        `SELECT status FROM whatsapp_connections WHERE auth_user_id = $1 AND status = 'connected'`,
+        [authUserId],
+      );
+      return { connected: res.rows.length > 0, provider: "whatsapp" };
+    } catch {
+      return { connected: false, provider: "whatsapp" };
+    }
+  }
+
+  if (requiredConnection === "telegram") {
+    try {
+      const res = await getPool().query(
+        `SELECT status FROM connections WHERE user_id = (
+           SELECT id FROM users WHERE auth_user_id = $1
+         ) AND provider = 'telegram' AND status = 'connected'`,
+        [authUserId],
+      );
+      return { connected: res.rows.length > 0, provider: "telegram" };
+    } catch {
+      return { connected: false, provider: "telegram" };
+    }
+  }
+
+  // Unknown provider — assume not connected
   return { connected: false, provider: requiredConnection };
 }
 

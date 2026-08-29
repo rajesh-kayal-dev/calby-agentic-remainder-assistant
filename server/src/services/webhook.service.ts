@@ -1,5 +1,6 @@
 import { processTelegramWebhookStart } from "./notifications/telegram-connection.service.js";
 import { updateWhatsAppDeliveryStatusByProviderMessageId } from "../repositories/reminder.repository.js";
+import { getPool } from "../db/pool.js";
 
 export interface TelegramWebhookResult {
   success: boolean;
@@ -16,6 +17,21 @@ export interface WhatsAppVerifyResult {
 export interface WhatsAppProcessResult {
   success: boolean;
   processedCount: number;
+  messagesReceived?: number;
+}
+
+// In-memory LRU-like set for message deduplication
+const seenMessageIds = new Set<string>();
+const MAX_SEEN_MESSAGES = 1000;
+
+function isDuplicate(messageId: string): boolean {
+  if (seenMessageIds.has(messageId)) return true;
+  if (seenMessageIds.size >= MAX_SEEN_MESSAGES) {
+    const firstKey = seenMessageIds.values().next().value;
+    if (firstKey) seenMessageIds.delete(firstKey);
+  }
+  seenMessageIds.add(messageId);
+  return false;
 }
 
 export async function processTelegramWebhook(
@@ -33,10 +49,21 @@ export async function processTelegramWebhook(
     };
   }
 
-  const text = payload?.message?.text || "";
-  const chatId = payload?.message?.chat?.id ? String(payload.message.chat.id) : null;
-  const username = payload?.message?.from?.username || null;
+  const message = payload?.message;
+  if (!message) {
+    return { success: true, processed: false };
+  }
 
+  const messageId = message?.message_id ? `tg_${message.message_id}` : null;
+  if (messageId && isDuplicate(messageId)) {
+    return { success: true, processed: true };
+  }
+
+  const text = message?.text || "";
+  const chatId = message?.chat?.id ? String(message.chat.id) : null;
+  const username = message?.from?.username || null;
+
+  // 1. One-time deep link /start flow
   if (text && chatId && text.startsWith("/start ")) {
     const startToken = text.substring(7).trim();
     if (startToken) {
@@ -46,6 +73,22 @@ export async function processTelegramWebhook(
         username,
       });
       return { success: true, processed: true };
+    }
+  }
+
+  // 2. Regular message from connected user
+  if (chatId && text) {
+    try {
+      const res = await getPool().query(
+        `SELECT user_id FROM connections WHERE provider = 'telegram' AND provider_user_id = $1 AND status = 'connected'`,
+        [chatId],
+      );
+      if (res.rows.length > 0) {
+        // User is connected via Telegram; message received and verified
+        return { success: true, processed: true };
+      }
+    } catch {
+      // Graceful fallback
     }
   }
 
@@ -71,6 +114,7 @@ export function verifyWhatsAppWebhook(query: Record<string, any>): WhatsAppVerif
 
 export async function processWhatsAppWebhook(payload: any): Promise<WhatsAppProcessResult> {
   let processedCount = 0;
+  let messagesReceived = 0;
 
   try {
     const entries = payload?.entry || [];
@@ -78,8 +122,9 @@ export async function processWhatsAppWebhook(payload: any): Promise<WhatsAppProc
       const changes = entry?.changes || [];
       for (const change of changes) {
         const value = change?.value;
-        const statuses = value?.statuses || [];
 
+        // 1. Process delivery statuses (sent, delivered, read, failed)
+        const statuses = value?.statuses || [];
         for (const statusObj of statuses) {
           if (!statusObj || !statusObj.id || !statusObj.status) continue;
 
@@ -107,14 +152,30 @@ export async function processWhatsAppWebhook(payload: any): Promise<WhatsAppProc
               processedCount++;
             }
           } catch {
-            // DB query failure handled gracefully for test environment or missing pool
+            // DB query failure handled gracefully for test environment
+          }
+        }
+
+        // 2. Process incoming messages from users
+        const messages = value?.messages || [];
+        for (const msg of messages) {
+          if (!msg?.id) continue;
+          const msgId = `wa_${msg.id}`;
+          if (isDuplicate(msgId)) continue;
+
+          const senderNumber = msg.from; // Phone number of sender
+          const messageText = msg.text?.body || "";
+          const msgType = msg.type || "text";
+
+          if (senderNumber && (messageText || msgType)) {
+            messagesReceived++;
           }
         }
       }
     }
 
-    return { success: true, processedCount };
+    return { success: true, processedCount, messagesReceived };
   } catch (err: any) {
-    return { success: false, processedCount };
+    return { success: false, processedCount, messagesReceived };
   }
 }
