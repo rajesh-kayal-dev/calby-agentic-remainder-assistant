@@ -72,6 +72,7 @@ import { useUserProfile } from "@/context/user-profile-context";
 import { useLLM } from "@/context/llm-context";
 import { ConnectionInfo } from "@/lib/types";
 import { PWAInstallButton } from "@/components/pwa/PWAInstallButton";
+import { IntegrationConnectedBanner } from "./chat/integration-connected-banner";
 
 const styles = {
   shell:
@@ -641,6 +642,41 @@ function ChatPanel({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [calendarConnection, setCalendarConnection] = useState<ConnectionInfo | null>(null);
 
+  // Integration Connection Banner State
+  const [connectedBanner, setConnectedBanner] = useState<{
+    provider: string;
+    intendedAction?: string;
+    error?: string | null;
+    needsReconnect?: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const connectedParam = urlParams.get("connected");
+    const errorParam = urlParams.get("error");
+    const intendedActionParam = urlParams.get("intended_action");
+
+    if (connectedParam) {
+      setConnectedBanner({
+        provider: connectedParam,
+        intendedAction: intendedActionParam || undefined,
+      });
+      setActiveView("assistant");
+      if (intendedActionParam) {
+        setPrompt(intendedActionParam);
+      }
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (errorParam) {
+      setConnectedBanner({
+        provider: urlParams.get("provider") || "integration",
+        error: errorParam,
+      });
+      setActiveView("assistant");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   useEffect(() => {
     if (!sessionToken) return;
     fetchCalendarConnection(sessionToken)
@@ -970,6 +1006,12 @@ function ChatPanel({
           userLabel={currentDisplayUser}
           initialTab={settingsTab}
           onBackToAssistant={() => setActiveView("assistant")}
+          onNavigateToChat={(provider) => {
+            setActiveView("assistant");
+            if (provider) {
+              setConnectedBanner({ provider });
+            }
+          }}
           onOpenCalendarWorkspace={() => setGoogleCalendarOverlayOpen(true)}
         />
         <ProfileModal
@@ -1519,6 +1561,33 @@ function ChatPanel({
               </div>
 
               <div className="relative flex min-h-0 flex-1 flex-col z-10">
+                {connectedBanner && (
+                  <div className="px-4 pt-3 shrink-0">
+                    <IntegrationConnectedBanner
+                      provider={connectedBanner.provider}
+                      intendedAction={connectedBanner.intendedAction}
+                      error={connectedBanner.error}
+                      needsReconnect={connectedBanner.needsReconnect}
+                      onSelectSuggestion={(suggestionText) => {
+                        setPrompt(suggestionText);
+                        const textarea = document.querySelector<HTMLTextAreaElement>("textarea");
+                        if (textarea) textarea.focus();
+                      }}
+                      onDismiss={() => setConnectedBanner(null)}
+                      onReconnect={() => {
+                        setSettingsTab("connectors");
+                        setActiveView("settings");
+                        setConnectedBanner(null);
+                      }}
+                      onGoToIntegrations={() => {
+                        setSettingsTab("connectors");
+                        setActiveView("settings");
+                        setConnectedBanner(null);
+                      }}
+                    />
+                  </div>
+                )}
+
                 <ScrollArea className={styles.messagesScroll}>
                   <div className={styles.messagesInner}>
                     {showEmpty ? (

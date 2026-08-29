@@ -1,8 +1,20 @@
 import { getValidGoogleAccessToken } from "./google-oauth.service.js";
+import { getProviderAccessToken } from "./integrations/integration.service.js";
 
 export async function getCalendarAccessToken(
   authUserId: string,
 ): Promise<string> {
+  // Strategy 1: Try Nango-managed connection first
+  if (process.env.NANGO_SECRET_KEY) {
+    try {
+      const token = await getProviderAccessToken(authUserId, "google-calendar");
+      if (token) return token;
+    } catch {
+      // Nango connection not found or failed — fall through to legacy path
+    }
+  }
+
+  // Strategy 2: Fall back to direct Google OAuth (legacy/migration path)
   try {
     const { accessToken } = await getValidGoogleAccessToken(authUserId);
     return accessToken;

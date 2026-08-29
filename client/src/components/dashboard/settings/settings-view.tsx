@@ -47,6 +47,7 @@ interface SettingsViewProps {
   userLabel: string;
   initialTab?: SettingsTabId;
   onBackToAssistant: () => void;
+  onNavigateToChat?: (provider?: string) => void;
   onOpenCalendarWorkspace?: () => void;
 }
 
@@ -55,6 +56,7 @@ export function SettingsView({
   userLabel,
   initialTab = "connectors",
   onBackToAssistant,
+  onNavigateToChat,
   onOpenCalendarWorkspace,
 }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
@@ -198,6 +200,7 @@ export function SettingsView({
           <ConnectorsTab
             sessionToken={sessionToken}
             onOpenWorkspace={onOpenCalendarWorkspace}
+            onNavigateToChat={onNavigateToChat}
           />
         )}
         {activeTab === "subscription" && (

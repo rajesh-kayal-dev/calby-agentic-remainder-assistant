@@ -24,7 +24,8 @@ export function getPool(): Pool {
       },
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 20000,
+      keepAlive: true,
     });
 
     // Register error handler on pool instance to prevent unhandled 'error' event process crashes when idle sockets drop

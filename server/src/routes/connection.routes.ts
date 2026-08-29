@@ -16,28 +16,19 @@ import {
   getWhatsAppConnectionStatus,
   disconnectWhatsApp,
 } from "../services/notifications/whatsapp-connection.service.js";
+import {
+  processTelegramWebhook,
+  verifyWhatsAppWebhook,
+  processWhatsAppWebhook,
+} from "../services/webhook.service.js";
 import { getPool } from "../db/pool.js";
 
 export const connectionRouter = Router();
 
-// Public Webhook Endpoint for Telegram Bot Updates (No session token required)
+// Legacy Webhook Endpoints (forwarded to centralized webhook service)
 connectionRouter.post("/telegram/webhook", async (req, res) => {
   try {
-    const text = req.body?.message?.text || "";
-    const chatId = req.body?.message?.chat?.id ? String(req.body.message.chat.id) : null;
-    const username = req.body?.message?.from?.username || null;
-
-    if (text && chatId && text.startsWith("/start ")) {
-      const startToken = text.substring(7).trim();
-      if (startToken) {
-        await processTelegramWebhookStart({
-          chatId,
-          startToken,
-          username,
-        });
-      }
-    }
-
+    await processTelegramWebhook(req.headers as Record<string, string>, req.body);
     res.json({ ok: true });
   } catch (error) {
     console.error("Telegram webhook error:", error);
@@ -45,55 +36,22 @@ connectionRouter.post("/telegram/webhook", async (req, res) => {
   }
 });
 
-// Public Webhook Verification Endpoint for WhatsApp Business API (GET Challenge)
 connectionRouter.get("/whatsapp/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "calby-whatsapp-verify-token";
-
-  if (mode === "subscribe" && token === expectedToken && challenge) {
-    res.status(200).send(challenge);
+  const result = verifyWhatsAppWebhook(req.query);
+  if (result.valid && result.challenge) {
+    res.status(200).send(result.challenge);
     return;
   }
-
   res.status(403).send("Forbidden");
 });
 
-// Public Webhook Status Update Endpoint for WhatsApp Business API (POST Statuses)
 connectionRouter.post("/whatsapp/webhook", async (req, res) => {
   try {
-    const entry = req.body?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
-    const statusObj = value?.statuses?.[0];
-
-    if (statusObj && statusObj.id && statusObj.status) {
-      const messageId = statusObj.id;
-      const status = String(statusObj.status).toLowerCase();
-
-      let deliveryStatus = "sent";
-      if (status === "delivered") deliveryStatus = "delivered";
-      if (status === "read") deliveryStatus = "read";
-      if (status === "failed") deliveryStatus = "failed";
-
-      await getPool().query(
-        `
-        UPDATE notification_deliveries
-        SET
-          whatsapp_status = $1,
-          status = CASE WHEN $1 = 'failed' THEN 'failed' ELSE status END
-        WHERE provider_message_id = $2
-        `,
-        [deliveryStatus, messageId],
-      );
-    }
-
+    await processWhatsAppWebhook(req.body);
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error("WhatsApp webhook error:", error);
-    res.status(200).json({ ok: true }); // Always return 200 to Meta
+    res.status(200).json({ ok: true });
   }
 });
 

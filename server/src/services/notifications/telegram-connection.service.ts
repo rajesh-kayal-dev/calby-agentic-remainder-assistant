@@ -23,7 +23,7 @@ export async function createTelegramConnectionToken(
     [token, authUserId, expiresAt],
   );
 
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME || "CalbyBot";
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME || "CalbyAssistantBot";
   const botUrl = `https://t.me/${botUsername}?start=${token}`;
 
   return { token, botUrl, expiresAt };
@@ -94,6 +94,16 @@ export async function processTelegramWebhookStart(input: {
         JSON.stringify({ username: input.username || null, connectedAt: new Date().toISOString() }),
       ],
     );
+
+    const { upsertIntegration } = await import("../integrations/integration.service.js");
+    await upsertIntegration({
+      authUserId,
+      provider: "telegram",
+      nangoConnectionId: authUserId,
+      nangoIntegrationId: "telegram",
+      status: "connected",
+      metadata: { chatId: input.chatId, username: input.username || null },
+    });
 
     await client.query("COMMIT");
     return { success: true, authUserId };
