@@ -67,7 +67,7 @@ app.use(
 
 app.use(express.json({ limit: "2mb" }));
 
-app.get(["/health", "/api/health"], async (_req, res) => {
+app.get(["/", "/health", "/api/health"], async (_req, res) => {
   try {
     await getPool().query("SELECT 1");
     res.json({ status: "ok", service: "calby-server", database: "up" });
