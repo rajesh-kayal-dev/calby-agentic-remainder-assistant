@@ -119,7 +119,7 @@ export function ConnectorsTab({
     connected: boolean;
     status: "connected" | "disconnected" | "error";
     phoneNumberId?: string | null;
-  }>({ connected: true, status: "connected" });
+  }>({ connected: false, status: "disconnected" });
   const [waLoading, setWaLoading] = useState(false);
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [waPhoneNumberId, setWaPhoneNumberId] = useState("");
@@ -132,7 +132,7 @@ export function ConnectorsTab({
   const [gmailConnection, setGmailConnection] = useState<{
     connected: boolean;
     email?: string;
-  }>({ connected: true });
+  }>({ connected: false });
   const [gmailLoading, setGmailLoading] = useState(false);
   const [gmailBusy, setGmailBusy] = useState(false);
 
@@ -178,7 +178,13 @@ export function ConnectorsTab({
             setConnection({ status: isConn ? "connected" : "disconnected" } as any);
           }
           if (item.provider === "gmail") {
-            setGmailConnection({ connected: isConn });
+            setGmailConnection({ connected: isConn, email: item.email });
+          }
+          if (item.provider === "telegram") {
+            setTgConnection({ connected: isConn, status: isConn ? "connected" : "disconnected" });
+          }
+          if (item.provider === "whatsapp") {
+            setWaConnection({ connected: isConn, status: isConn ? "connected" : "disconnected" });
           }
           if (item.provider === "google-drive") {
             setSimulatedConnections((prev) => ({ ...prev, drive: isConn }));
@@ -193,15 +199,12 @@ export function ConnectorsTab({
             setSimulatedConnections((prev) => ({ ...prev, slack: isConn }));
           }
         }
-        setNangoStatuses((prev) => {
-          const merged = { ...prev, ...statusMap };
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("calby_nango_status_cache", JSON.stringify(merged));
-            } catch {}
-          }
-          return merged;
-        });
+        setNangoStatuses(statusMap);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("calby_nango_status_cache", JSON.stringify(statusMap));
+          } catch {}
+        }
       }
     } catch {
       // Keep cached state on network glitch
@@ -230,7 +233,7 @@ export function ConnectorsTab({
         setGmailConnection(res.connection);
       }
     } catch {
-      setGmailConnection({ connected: true });
+      setGmailConnection({ connected: false });
     } finally {
       setGmailLoading(false);
     }
@@ -260,7 +263,7 @@ export function ConnectorsTab({
         setWaConnection(res.connection);
       }
     } catch {
-      setWaConnection({ connected: true, status: "connected" });
+      setWaConnection({ connected: false, status: "disconnected" });
     } finally {
       setWaLoading(false);
     }
@@ -524,7 +527,7 @@ export function ConnectorsTab({
       categoryType: ["All", "Productivity", "Work"],
       description: "Manage events, availability, and scheduling.",
       icon: GoogleCalendarIcon,
-      defaultConnected: true,
+      defaultConnected: false,
     },
     {
       id: "gmail",
@@ -533,7 +536,7 @@ export function ConnectorsTab({
       categoryType: ["All", "Communication", "Work"],
       description: "Receive reminders and important updates via email.",
       icon: GmailIcon,
-      defaultConnected: true,
+      defaultConnected: false,
     },
     {
       id: "slack",
@@ -578,7 +581,7 @@ export function ConnectorsTab({
       categoryType: ["All", "Communication"],
       description: "Receive important reminders on WhatsApp.",
       icon: WhatsAppIcon,
-      defaultConnected: true,
+      defaultConnected: false,
     },
     {
       id: "telegram",
@@ -587,37 +590,39 @@ export function ConnectorsTab({
       categoryType: ["All", "Communication"],
       description: "Receive instant reminders and alerts.",
       icon: TelegramIcon,
-      defaultConnected: true,
+      defaultConnected: false,
     },
   ];
 
   // Helper to check connection status of each integration
   const isIntegrationConnected = (id: string): boolean => {
+    const providerMap: Record<string, string> = {
+      calendar: "google-calendar",
+      gmail: "gmail",
+      drive: "google-drive",
+      docs: "google-docs",
+      notion: "notion",
+      slack: "slack",
+      whatsapp: "whatsapp",
+      telegram: "telegram",
+    };
+
+    const providerKey = providerMap[id] || id;
+
     if (id === "calendar") {
-      return nangoStatuses["google-calendar"] ?? (connection ? connection.status === "connected" : false);
+      return Boolean(nangoStatuses["google-calendar"] ?? (connection ? connection.status === "connected" : false));
     }
     if (id === "gmail") {
-      return nangoStatuses["gmail"] ?? gmailConnection.connected;
-    }
-    if (id === "drive") {
-      return nangoStatuses["google-drive"] ?? simulatedConnections.drive ?? false;
-    }
-    if (id === "docs") {
-      return nangoStatuses["google-docs"] ?? simulatedConnections.docs ?? false;
-    }
-    if (id === "notion") {
-      return nangoStatuses["notion"] ?? simulatedConnections.notion ?? false;
-    }
-    if (id === "slack") {
-      return nangoStatuses["slack"] ?? simulatedConnections.slack ?? false;
+      return Boolean(nangoStatuses["gmail"] ?? gmailConnection.connected);
     }
     if (id === "whatsapp") {
-      return waConnection.connected;
+      return Boolean(nangoStatuses["whatsapp"] ?? waConnection.connected);
     }
     if (id === "telegram") {
-      return nangoStatuses["telegram"] ?? tgConnection.connected ?? false;
+      return Boolean(nangoStatuses["telegram"] ?? tgConnection.connected);
     }
-    return Boolean(simulatedConnections[id]);
+
+    return Boolean(nangoStatuses[providerKey] ?? false);
   };
 
   // Filtered List based on Search Query and Category Pill
