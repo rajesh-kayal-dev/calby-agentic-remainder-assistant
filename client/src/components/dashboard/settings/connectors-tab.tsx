@@ -320,14 +320,16 @@ export function ConnectorsTab({
             setConnectingProvider(null);
             setBusy(false);
 
+            let isConnected = false;
             try {
-              await callbackIntegrationApi(sessionToken, providerName);
+              const cbRes = await callbackIntegrationApi(sessionToken, providerName);
+              isConnected = Boolean(cbRes?.success && cbRes?.integration?.status === "connected");
             } catch {
-              // Non-blocking fallback handled by sync
+              isConnected = false;
             }
 
             setNangoStatuses((prev) => {
-              const updated = { ...prev, [providerName]: true };
+              const updated = { ...prev, [providerName]: isConnected };
               if (typeof window !== "undefined") {
                 try {
                   localStorage.setItem("calby_nango_status_cache", JSON.stringify(updated));
@@ -335,9 +337,13 @@ export function ConnectorsTab({
               }
               return updated;
             });
-            setLastConnectedProvider(card);
-            setSyncFeedback(`${displayName || providerName} connected successfully.`);
-            setTimeout(() => setSyncFeedback(""), 5000);
+
+            if (isConnected) {
+              setLastConnectedProvider(card);
+              setSyncFeedback(`${displayName || providerName} connected successfully.`);
+              setTimeout(() => setSyncFeedback(""), 5000);
+            }
+
             await loadAllIntegrations();
           }
         }, 1000);

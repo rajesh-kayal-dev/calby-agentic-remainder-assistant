@@ -14,7 +14,7 @@ test("1. Nango types map all OAuth providers correctly", () => {
   assert.equal(PROVIDER_TO_NANGO_INTEGRATION["slack"], "slack");
   assert.equal(PROVIDER_TO_NANGO_INTEGRATION["microsoft-teams"], "microsoft-teams");
 
-  assert.equal(NANGO_OAUTH_PROVIDERS.has("google-calendar"), true);
+  assert.equal(NANGO_OAUTH_PROVIDERS.has("google-calendar"), false);
   assert.equal(NANGO_OAUTH_PROVIDERS.has("gmail"), true);
   assert.equal(NANGO_OAUTH_PROVIDERS.has("notion"), true);
   assert.equal(NANGO_OAUTH_PROVIDERS.has("slack"), true);

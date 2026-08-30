@@ -108,27 +108,36 @@ export function sanitizeMessageRow(row: MessageRow): MessageDTO {
 }
 
 export function reconstructChatMessagesHistory(messages: MessageDTO[]): ChatMessage[] {
-  return messages.map((m) => {
+  const result: ChatMessage[] = [];
+  for (const m of messages) {
+    if (
+      m.role === "assistant" &&
+      (!m.content || !m.content.trim()) &&
+      (!m.toolCalls || m.toolCalls.length === 0)
+    ) {
+      continue;
+    }
     if (m.role === "tool") {
-      return {
+      result.push({
         role: "tool",
         toolCallId: m.toolCallId,
         name: m.toolName,
         content: m.content,
-      };
-    }
-    if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
-      return {
+      });
+    } else if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+      result.push({
         role: "assistant",
         content: m.content || null,
         toolCalls: m.toolCalls,
-      };
+      });
+    } else {
+      result.push({
+        role: m.role as "user" | "assistant" | "system",
+        content: m.content,
+      });
     }
-    return {
-      role: m.role as "user" | "assistant" | "system",
-      content: m.content,
-    };
-  });
+  }
+  return result;
 }
 
 export async function listUserConversations(

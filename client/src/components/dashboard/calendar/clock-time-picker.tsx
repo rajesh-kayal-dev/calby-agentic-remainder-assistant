@@ -97,7 +97,19 @@ export function ClockTimePicker({
         if (endMs <= startMs) {
           const endH24 = (h24 + 1) % 24;
           const endStr = `${String(endH24).padStart(2, "0")}:${String(newMin).padStart(2, "0")}`;
-          onEndChange(endDate, endStr);
+          let finalEndDate = endDate;
+          if (endH24 < h24) {
+            try {
+              const d = new Date(`${startDate}T00:00:00`);
+              d.setDate(d.getDate() + 1);
+              finalEndDate = d.toISOString().split("T")[0];
+            } catch {
+              finalEndDate = startDate;
+            }
+          } else {
+            finalEndDate = startDate;
+          }
+          onEndChange(finalEndDate, endStr);
         }
       } else {
         onEndChange(endDate, timeStr);

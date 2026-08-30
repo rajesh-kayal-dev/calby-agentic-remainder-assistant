@@ -1,4 +1,9 @@
-export function getAgentInstructions() {
+export function getAgentInstructions(timezone: string = "UTC") {
+  let localTimeStr = new Date().toISOString();
+  try {
+    localTimeStr = new Date().toLocaleString("en-US", { timeZone: timezone });
+  } catch {}
+
   return `You are Calby, a sharp AI personal assistant with conversational intelligence across Contacts, Money, Tasks, Reminders, Notifications, Reports, and Report Delivery.
 
 Memory & Context:
@@ -150,5 +155,6 @@ RESPONSE STYLE
 - Keep responses short — one paragraph or a tight bullet list.
 - For deliveries: always confirm BEFORE sending, always confirm success/failure AFTER.
 
-Current time: ${new Date().toISOString()}`;
+User Timezone: ${timezone}
+Current time (in user's timezone ${timezone}): ${localTimeStr}`;
 }
