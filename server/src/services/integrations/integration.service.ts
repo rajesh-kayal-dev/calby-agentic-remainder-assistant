@@ -15,6 +15,7 @@ import {
 } from "../nango/nango.types.js";
 import {
   getCalendarConnectionStatus,
+  getGmailConnectionStatus,
   disconnectGoogleOAuth,
 } from "../google-oauth.service.js";
 
@@ -226,53 +227,121 @@ export async function syncNangoConnectionsForUser(authUserId: string): Promise<v
 }
 
 /**
+ * Normalize provider alias strings to canonical internal provider names.
+ */
+export function normalizeProviderName(provider: string): string {
+  const p = (provider || "").toLowerCase().trim();
+  if (p === "google_calendar" || p === "calendar" || p === "google-calendar") return "google-calendar";
+  if (p === "gmail" || p === "google-mail" || p === "mail") return "gmail";
+  if (p === "google_drive" || p === "drive" || p === "google-drive") return "google-drive";
+  if (p === "google_docs" || p === "docs" || p === "google-docs") return "google-docs";
+  if (p === "google_meet" || p === "meet" || p === "google-meet") return "google-meet";
+  if (p === "notion") return "notion";
+  if (p === "slack") return "slack";
+  if (p === "microsoft-teams" || p === "teams" || p === "microsoft_teams") return "microsoft-teams";
+  if (p === "telegram") return "telegram";
+  if (p === "whatsapp" || p === "whatsapp-business") return "whatsapp";
+  return p;
+}
+
+/**
  * Get the status of a single integration for a user.
  */
 export async function getIntegrationStatus(
   authUserId: string,
-  provider: string,
+  rawProvider: string,
 ): Promise<IntegrationStatus> {
+  const provider = normalizeProviderName(rawProvider);
   const label = PROVIDER_LABELS[provider] || provider;
   const capabilities = PROVIDER_CAPABILITIES[provider] || [];
 
-  if (provider === "google-calendar") {
-    const status = await getCalendarConnectionStatus(authUserId);
-    return {
-      provider,
-      status: status.connected ? "connected" : "disconnected",
-      label,
-      capabilities,
-      email: status.email,
-      metadata: status.scopes ? { scopes: status.scopes } : undefined,
-    };
-  }
-
-  // For Nango OAuth/managed providers
-  if (NANGO_OAUTH_PROVIDERS.has(provider)) {
-    const row = await getIntegrationRow(authUserId, provider);
-
-    if (!row || row.status !== "connected") {
-      return { provider, status: "disconnected", label, capabilities };
+  try {
+    if (provider === "google-calendar") {
+      const status = await getCalendarConnectionStatus(authUserId);
+      return {
+        provider,
+        status: status.connected ? "connected" : "disconnected",
+        label,
+        capabilities,
+        email: status.email,
+        metadata: status.scopes ? { scopes: status.scopes } : undefined,
+      };
     }
 
-    return {
-      provider,
-      status: "connected",
-      label,
-      capabilities,
-      connectedAt: row.connected_at || undefined,
-      metadata: row.metadata,
-    };
-  }
+    if (provider === "gmail") {
+      // 1. Check Nango-managed 'gmail' integration first
+      try {
+        const row = await getIntegrationRow(authUserId, "gmail");
+        if (row && row.status === "connected") {
+          return {
+            provider: "gmail",
+            status: "connected",
+            label,
+            capabilities,
+            connectedAt: row.connected_at || undefined,
+            metadata: row.metadata,
+          };
+        }
+      } catch {}
 
-  // For non-Nango providers (WhatsApp) — check existing table
-  if (provider === "whatsapp") {
-    const res = await getPool().query(
-      `SELECT status FROM whatsapp_connections WHERE auth_user_id = $1`,
-      [authUserId],
-    );
-    const status = res.rows[0]?.status === "connected" ? "connected" : "disconnected";
-    return { provider, status, label, capabilities };
+      // 2. Check legacy Google OAuth connection fallback (verifying Gmail scope)
+      try {
+        const gmailStatus = await getGmailConnectionStatus(authUserId);
+        if (gmailStatus.connected) {
+          return {
+            provider: "gmail",
+            status: "connected",
+            label,
+            capabilities,
+            email: gmailStatus.email,
+          };
+        }
+      } catch {}
+
+      return { provider: "gmail", status: "disconnected", label, capabilities };
+    }
+
+    // For Nango OAuth/managed providers
+    if (NANGO_OAUTH_PROVIDERS.has(provider)) {
+      const row = await getIntegrationRow(authUserId, provider);
+
+      if (!row || row.status !== "connected") {
+        return { provider, status: "disconnected", label, capabilities };
+      }
+
+      return {
+        provider,
+        status: "connected",
+        label,
+        capabilities,
+        connectedAt: row.connected_at || undefined,
+        metadata: row.metadata,
+      };
+    }
+
+    // For non-Nango providers (WhatsApp) — check existing table
+    if (provider === "whatsapp") {
+      const res = await getPool().query(
+        `SELECT status FROM whatsapp_connections WHERE auth_user_id = $1`,
+        [authUserId],
+      );
+      const status = res.rows[0]?.status === "connected" ? "connected" : "disconnected";
+      return { provider, status, label, capabilities };
+    }
+
+    // Telegram non-Nango fallback check
+    if (provider === "telegram") {
+      const res = await getPool().query(
+        `SELECT status FROM connections WHERE user_id = (
+           SELECT id FROM users WHERE auth_user_id = $1
+         ) AND provider = 'telegram' AND status = 'connected'`,
+        [authUserId],
+      );
+      const status = res.rows.length > 0 ? "connected" : "disconnected";
+      return { provider, status, label, capabilities };
+    }
+  } catch (err: any) {
+    console.warn(`[Integrations] Failed to resolve status for ${provider}:`, err?.message);
   }
 
   return { provider, status: "disconnected", label, capabilities };
