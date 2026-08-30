@@ -34,7 +34,6 @@ export const PROVIDER_TO_NANGO_INTEGRATION: Record<string, NangoIntegrationId> =
 
 /** Providers whose OAuth is managed entirely by Nango. */
 export const NANGO_OAUTH_PROVIDERS = new Set<string>([
-  "google-calendar",
   "gmail",
   "google-drive",
   "google-docs",

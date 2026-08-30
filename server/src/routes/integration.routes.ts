@@ -70,6 +70,22 @@ integrationRouter.post("/:provider/connect", async (req, res) => {
     const { provider } = req.params;
     const authUserId = req.authContext!.authUserId;
 
+    if (provider === "google-calendar") {
+      const { getGoogleOAuthAuthUrl } = await import("../services/google-oauth.service.js");
+      const appUrl = process.env.APP_URL || "http://localhost:3000";
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/connections/google/callback`;
+      const url = getGoogleOAuthAuthUrl({
+        authUserId,
+        redirectUri,
+      });
+      res.json({
+        method: "google_oauth",
+        provider,
+        url,
+      });
+      return;
+    }
+
     if (NANGO_OAUTH_PROVIDERS.has(provider)) {
       const nangoIntId = PROVIDER_TO_NANGO_INTEGRATION[provider];
       if (!nangoIntId) {
@@ -138,6 +154,12 @@ integrationRouter.post("/:provider/callback", async (req, res) => {
     const { provider } = req.params;
     const authUserId = req.authContext!.authUserId;
 
+    if (provider === "google-calendar") {
+      const status = await getIntegrationStatus(authUserId, "google-calendar");
+      res.json({ success: status.status === "connected", integration: status });
+      return;
+    }
+
     if (!NANGO_OAUTH_PROVIDERS.has(provider)) {
       res.status(400).json({ error: `Provider '${provider}' does not use OAuth callback` });
       return;
@@ -159,7 +181,8 @@ integrationRouter.post("/:provider/callback", async (req, res) => {
       authUserId,
     );
 
-    res.json({ success: true, integration: status });
+    const isConnected = status.status === "connected";
+    res.json({ success: isConnected, integration: status });
   } catch (error: any) {
     console.error("[Integrations] Callback failed:", error?.message);
     res.status(500).json({ error: "Could not complete integration connection" });

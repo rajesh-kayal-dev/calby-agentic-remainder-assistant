@@ -95,7 +95,6 @@ export const TOOLS_REGISTRY: Record<string, BackendToolDefinition> = {
     name: "Get Calendar Events",
     description: "Fetch upcoming meetings and events from calendar",
     category: "CALENDAR",
-    requiredConnection: "google_calendar",
     confirmationRequired: false,
     inputSchema: z.object({
       maxResults: z.number().min(1).max(50).optional().default(10),
@@ -109,7 +108,6 @@ export const TOOLS_REGISTRY: Record<string, BackendToolDefinition> = {
     name: "Find Free Time",
     description: "Check free/busy time slots in calendar",
     category: "CALENDAR",
-    requiredConnection: "google_calendar",
     confirmationRequired: false,
     inputSchema: z.object({
       startIso: z.string().optional(),

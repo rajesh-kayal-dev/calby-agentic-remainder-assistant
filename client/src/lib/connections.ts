@@ -3,33 +3,59 @@ import { apiFetch } from "./api";
 import { ConnectionInfo } from "./types";
 
 export async function fetchCalendarConnection(token: string) {
-  const data = await apiFetch<{ connection: ConnectionInfo }>(
-    "/api/connections",
-    { token },
-  );
+  try {
+    const data = await apiFetch<{ integration: GenericIntegrationStatus }>(
+      "/api/integrations/google-calendar/status",
+      { token },
+    );
 
-  return data.connection;
+    return {
+      label: "Google Calendar",
+      status: data.integration.status === "connected" ? "connected" : "disconnected",
+      email: data.integration.email,
+    } as ConnectionInfo;
+  } catch {
+    return {
+      label: "Google Calendar",
+      status: "disconnected",
+    } as ConnectionInfo;
+  }
 }
 
 export async function connectCalendar(token: string) {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) throw new Error("refreshToken invalid");
+  const result = await connectIntegrationApi(token, "google-calendar");
+  if (result.url) {
+    const width = 600;
+    const height = 720;
+    const left = typeof window !== "undefined" ? window.screenX + (window.innerWidth - width) / 2 : 0;
+    const top = typeof window !== "undefined" ? window.screenY + (window.innerHeight - height) / 2 : 0;
 
-  const result = await apiFetch<{ url: string }>("/api/connections/connect", {
-    method: "POST",
-    token,
-    body: {
-      redirectUrl: `${window.location.origin}/dashboard`,
-      refreshToken,
-    },
-  });
+    const popup = typeof window !== "undefined"
+      ? window.open(
+          result.url,
+          "CalbyNangoConnect",
+          `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`,
+        )
+      : null;
 
-  window.location.href = result.url;
+    if (!popup || popup.closed || typeof popup.closed === "undefined") {
+      if (typeof window !== "undefined") window.location.href = result.url;
+      return;
+    }
+
+    const checkTimer = setInterval(async () => {
+      if (popup.closed) {
+        clearInterval(checkTimer);
+        try {
+          await callbackIntegrationApi(token, "google-calendar");
+        } catch {}
+      }
+    }, 1000);
+  }
 }
 
 export async function refreshCalendarConnection(token: string) {
-  await apiFetch("/api/connections/refresh-status", {
-    method: "POST",
+  await apiFetch("/api/integrations", {
     token,
   });
 }

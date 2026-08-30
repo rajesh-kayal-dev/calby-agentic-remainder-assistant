@@ -29,6 +29,7 @@ import {
   formatToolResultToChatMessage,
 } from "../tools/tools.registry.js";
 import { executeTool } from "../tools/tool-router.js";
+import { getUserPreferences } from "../repositories/preferences.repository.js";
 
 export type AgentEvent = {
   type: "started" | "progress" | "token" | "completed" | "error";
@@ -68,8 +69,14 @@ const threadLocks = new Map<string, Promise<void>>();
 const MAX_AGENT_TURNS = 5;
 const MAX_TOOL_CALLS_PER_TURN = 10;
 
-function buildSystemInstructions(): string {
-  return getAgentInstructions();
+async function buildSystemInstructions(authUserId: string): Promise<string> {
+  try {
+    const prefs = await getUserPreferences(authUserId);
+    const timezone = prefs?.timezone || "UTC";
+    return getAgentInstructions(timezone);
+  } catch {
+    return getAgentInstructions();
+  }
 }
 
 function getProgressLabel(toolId: string): string {
@@ -278,8 +285,9 @@ async function executeAgentStream(
 
     // 6. Build prompt history from reconstructed PostgreSQL history
     const reconstructedHistory = reconstructChatMessagesHistory(historyMessages);
+    const systemPromptContent = await buildSystemInstructions(input.authUserId);
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemInstructions() },
+      { role: "system", content: systemPromptContent },
       ...reconstructedHistory,
     ];
 

@@ -13,6 +13,10 @@ import {
   NANGO_OAUTH_PROVIDERS,
   type NangoIntegrationId,
 } from "../nango/nango.types.js";
+import {
+  getCalendarConnectionStatus,
+  disconnectGoogleOAuth,
+} from "../google-oauth.service.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,24 +184,40 @@ export async function syncNangoConnectionsForUser(authUserId: string): Promise<v
   if (!process.env.NANGO_SECRET_KEY) return;
 
   try {
-    const connections = await nangoClient.listConnections(authUserId);
-    if (!Array.isArray(connections)) return;
+    for (const provider of ALL_PROVIDERS) {
+      if (!NANGO_OAUTH_PROVIDERS.has(provider)) continue;
 
-    for (const conn of connections) {
-      const nangoKey = conn.provider_config_key || conn.provider;
-      // Reverse find Calby provider name
-      const calbyProvider = Object.keys(PROVIDER_TO_NANGO_INTEGRATION).find(
-        (p) => PROVIDER_TO_NANGO_INTEGRATION[p] === nangoKey,
-      );
+      const nangoIntId = PROVIDER_TO_NANGO_INTEGRATION[provider];
+      if (!nangoIntId) continue;
 
-      if (calbyProvider) {
-        await upsertIntegration({
-          authUserId,
-          provider: calbyProvider,
-          nangoConnectionId: conn.connection_id,
-          nangoIntegrationId: nangoKey,
-          status: "connected",
-        });
+      const row = await getIntegrationRow(authUserId, provider);
+      const nangoConnId = row?.nango_connection_id || authUserId;
+
+      try {
+        const isActive = await nangoClient.isConnectionActive(nangoIntId, nangoConnId);
+        if (isActive) {
+          if (!row || row.status !== "connected") {
+            await upsertIntegration({
+              authUserId,
+              provider,
+              nangoConnectionId: nangoConnId,
+              nangoIntegrationId: nangoIntId,
+              status: "connected",
+            });
+          }
+        } else {
+          if (row && row.status === "connected") {
+            await upsertIntegration({
+              authUserId,
+              provider,
+              nangoConnectionId: nangoConnId,
+              nangoIntegrationId: nangoIntId,
+              status: "disconnected",
+            });
+          }
+        }
+      } catch {
+        // Suppress single provider connection check failure
       }
     }
   } catch (err: any) {
@@ -214,6 +234,18 @@ export async function getIntegrationStatus(
 ): Promise<IntegrationStatus> {
   const label = PROVIDER_LABELS[provider] || provider;
   const capabilities = PROVIDER_CAPABILITIES[provider] || [];
+
+  if (provider === "google-calendar") {
+    const status = await getCalendarConnectionStatus(authUserId);
+    return {
+      provider,
+      status: status.connected ? "connected" : "disconnected",
+      label,
+      capabilities,
+      email: status.email,
+      metadata: status.scopes ? { scopes: status.scopes } : undefined,
+    };
+  }
 
   // For Nango OAuth/managed providers
   if (NANGO_OAUTH_PROVIDERS.has(provider)) {
@@ -264,6 +296,7 @@ export async function getAllIntegrationStatuses(
 /**
  * Record that a user has connected an OAuth provider through Nango.
  * Called after the Nango OAuth callback completes successfully.
+ * Verifies that the connection is active in Nango before marking connected.
  */
 export async function markIntegrationConnected(
   authUserId: string,
@@ -271,11 +304,27 @@ export async function markIntegrationConnected(
   nangoConnectionId?: string,
 ): Promise<IntegrationStatus> {
   const nangoIntId = PROVIDER_TO_NANGO_INTEGRATION[provider];
+  const connId = nangoConnectionId || authUserId;
+
+  if (NANGO_OAUTH_PROVIDERS.has(provider) && nangoIntId && process.env.NANGO_SECRET_KEY) {
+    const isActive = await nangoClient.isConnectionActive(nangoIntId, connId);
+    if (!isActive) {
+      console.warn(`[Integrations] ${provider} connection for ${authUserId} is not active in Nango. Marking disconnected.`);
+      await upsertIntegration({
+        authUserId,
+        provider,
+        nangoConnectionId: connId,
+        nangoIntegrationId: nangoIntId,
+        status: "disconnected",
+      });
+      return getIntegrationStatus(authUserId, provider);
+    }
+  }
 
   await upsertIntegration({
     authUserId,
     provider,
-    nangoConnectionId: nangoConnectionId || authUserId,
+    nangoConnectionId: connId,
     nangoIntegrationId: nangoIntId,
     status: "connected",
   });
@@ -291,6 +340,11 @@ export async function disconnectIntegration(
   authUserId: string,
   provider: string,
 ): Promise<IntegrationStatus> {
+  if (provider === "google-calendar") {
+    await disconnectGoogleOAuth(authUserId);
+    return getIntegrationStatus(authUserId, provider);
+  }
+
   if (NANGO_OAUTH_PROVIDERS.has(provider)) {
     const row = await getIntegrationRow(authUserId, provider);
     const nangoIntId = (row?.nango_integration_id ||
@@ -301,6 +355,16 @@ export async function disconnectIntegration(
       await nangoClient.deleteConnection(nangoIntId, nangoConnId);
     } catch {
       // Connection may already be gone — proceed with local cleanup
+    }
+  }
+
+  // Purge legacy google_oauth_connections if provider is google-calendar
+  if (provider === "google-calendar") {
+    try {
+      const { disconnectGoogleOAuth } = await import("../google-oauth.service.js");
+      await disconnectGoogleOAuth(authUserId);
+    } catch {
+      // Non-blocking legacy cleanup
     }
   }
 
