@@ -441,7 +441,6 @@ export function ConnectorsTab({
       }
 
       setTgConnection({ connected: false, status: "disconnected" });
-      setSimulatedConnections((prev) => ({ ...prev, [id]: false, [provider]: false }));
       setNangoStatuses((prev) => {
         const next = { ...prev, [id]: false, [provider]: false, telegram: id === "telegram" ? false : prev.telegram };
         if (typeof window !== "undefined") {
