@@ -29,6 +29,7 @@ import {
   disconnectGoogleOAuth,
   validateGoogleOAuthState,
   getCalendarConnectionStatus,
+  getGmailConnectionStatus,
 } from "../services/google-oauth.service.js";
 
 export const connectionRouter = Router();

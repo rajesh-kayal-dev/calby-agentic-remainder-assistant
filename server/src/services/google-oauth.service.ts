@@ -7,15 +7,21 @@ import {
   GoogleOAuthConnectionRow,
 } from "../repositories/google-oauth.repository.js";
 
-const DEFAULT_SCOPES = [
+export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
+];
+
+export const ALL_GOOGLE_SCOPES = [
+  ...CALENDAR_SCOPES,
+  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/spreadsheets",
 ];
+
+const DEFAULT_SCOPES = ALL_GOOGLE_SCOPES;
 
 const STATE_SECRET = process.env.ENCRYPTION_KEY || "google-oauth-state-secret-key-32bytes!";
 
@@ -59,31 +65,33 @@ export function generateGoogleOAuthState(authUserId: string): string {
   return Buffer.from(`${payload}:${hmac}`).toString("base64url");
 }
 
-export function validateGoogleOAuthState(stateToken: string, expectedAuthUserId?: string): {
-  valid: boolean;
-  authUserId?: string;
-} {
+export function validateGoogleOAuthState(
+  stateToken: string,
+  expectedAuthUserId: string,
+): { valid: boolean; authUserId?: string } {
   try {
-    const decoded = Buffer.from(stateToken, "base64url").toString("utf-8");
-    const parts = decoded.split(":");
+    const raw = Buffer.from(stateToken, "base64url").toString("utf8");
+    const parts = raw.split(":");
     if (parts.length !== 3) return { valid: false };
 
     const [authUserId, timestampStr, hmac] = parts;
-    const timestamp = parseInt(timestampStr, 10);
+    if (authUserId !== expectedAuthUserId) return { valid: false };
 
-    // 15 minutes state expiration to prevent replay & CSRF attacks
-    if (isNaN(timestamp) || Date.now() - timestamp > 15 * 60 * 1000) {
-      return { valid: false };
-    }
+    const timestamp = parseInt(timestampStr, 10);
+    if (isNaN(timestamp)) return { valid: false };
+
+    // 15-minute expiration
+    if (Date.now() - timestamp > 15 * 60 * 1000) return { valid: false };
 
     const payload = `${authUserId}:${timestampStr}`;
     const expectedHmac = crypto.createHmac("sha256", STATE_SECRET).update(payload).digest("hex");
 
-    if (hmac !== expectedHmac) {
-      return { valid: false };
-    }
-
-    if (expectedAuthUserId && authUserId !== expectedAuthUserId) {
+    if (
+      !crypto.timingSafeEqual(
+        Buffer.from(hmac, "hex"),
+        Buffer.from(expectedHmac, "hex"),
+      )
+    ) {
       return { valid: false };
     }
 
@@ -96,9 +104,11 @@ export function validateGoogleOAuthState(stateToken: string, expectedAuthUserId?
 export function getGoogleOAuthAuthUrl(input: {
   authUserId: string;
   redirectUri: string;
+  scopes?: string[];
 }): string {
   const clientId = process.env.GOOGLE_CLIENT_ID || "mock-google-client-id";
   const state = generateGoogleOAuthState(input.authUserId);
+  const scopesToRequest = input.scopes || ALL_GOOGLE_SCOPES;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -106,7 +116,7 @@ export function getGoogleOAuthAuthUrl(input: {
     response_type: "code",
     access_type: "offline",
     prompt: "consent",
-    scope: DEFAULT_SCOPES.join(" "),
+    scope: scopesToRequest.join(" "),
     state,
   });
 
@@ -287,7 +297,7 @@ export async function getGmailConnectionStatus(
 
   const gmailAllowed = hasGmailScope(conn.scopes);
   if (!gmailAllowed) {
-    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "disconnected" };
   }
 
   return {
@@ -308,7 +318,7 @@ export async function getCalendarConnectionStatus(
 
   const calendarAllowed = hasCalendarScope(conn.scopes);
   if (!calendarAllowed) {
-    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "disconnected" };
   }
 
   return {
@@ -329,7 +339,7 @@ export async function getDocsConnectionStatus(
 
   const docsAllowed = hasDocsScope(conn.scopes);
   if (!docsAllowed) {
-    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "disconnected" };
   }
 
   return {
@@ -350,7 +360,7 @@ export async function getSheetsConnectionStatus(
 
   const sheetsAllowed = hasSheetsScope(conn.scopes);
   if (!sheetsAllowed) {
-    return { connected: false, email: conn.email, requiresUpgrade: true, status: "connected" };
+    return { connected: false, email: conn.email, requiresUpgrade: true, status: "disconnected" };
   }
 
   return {
