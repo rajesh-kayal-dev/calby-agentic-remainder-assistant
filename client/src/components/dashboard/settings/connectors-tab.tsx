@@ -83,7 +83,6 @@ export function ConnectorsTab({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterCategory>("All");
   const [guideModalOpen, setGuideModalOpen] = useState(false);
-  const [genericModalIntegration, setGenericModalIntegration] = useState<IntegrationItem | null>(null);
 
   // Disconnect Confirmation Modal State
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
@@ -136,13 +135,7 @@ export function ConnectorsTab({
   const [gmailLoading, setGmailLoading] = useState(false);
   const [gmailBusy, setGmailBusy] = useState(false);
 
-  // Simulated connections for Slack, Drive, Docs, Notion
-  const [simulatedConnections, setSimulatedConnections] = useState<Record<string, boolean>>({
-    slack: false,
-    drive: false,
-    docs: false,
-    notion: false,
-  });
+
 
   // Zero-flicker local status cache
   const [nangoStatuses, setNangoStatuses] = useState<Record<string, boolean>>(() => {
@@ -185,18 +178,6 @@ export function ConnectorsTab({
           }
           if (item.provider === "whatsapp") {
             setWaConnection({ connected: isConn, status: isConn ? "connected" : "disconnected" });
-          }
-          if (item.provider === "google-drive") {
-            setSimulatedConnections((prev) => ({ ...prev, drive: isConn }));
-          }
-          if (item.provider === "google-docs") {
-            setSimulatedConnections((prev) => ({ ...prev, docs: isConn }));
-          }
-          if (item.provider === "notion") {
-            setSimulatedConnections((prev) => ({ ...prev, notion: isConn }));
-          }
-          if (item.provider === "slack") {
-            setSimulatedConnections((prev) => ({ ...prev, slack: isConn }));
           }
         }
         setNangoStatuses(statusMap);
@@ -508,7 +489,7 @@ export function ConnectorsTab({
     } else if (item.id === "slack") {
       handleConnectNango("slack", "Slack", "slack");
     } else {
-      setGenericModalIntegration(item);
+      handleConnectNango(item.id, item.name, item.id);
     }
   };
 
@@ -948,60 +929,7 @@ export function ConnectorsTab({
         </div>
       )}
 
-      {/* GENERIC CONNECT MODAL (For Slack, Drive, Docs, Notion) */}
-      {genericModalIntegration && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-[#0d0e11] p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-              <div className="flex items-center gap-3">
-                <genericModalIntegration.icon className="size-8" />
-                <div>
-                  <h3 className="text-sm font-bold text-white">Connect {genericModalIntegration.name}</h3>
-                  <p className="text-xs text-zinc-400">{genericModalIntegration.categoryLabel}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setGenericModalIntegration(null)}
-                className="text-zinc-500 hover:text-zinc-300 text-xs"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
 
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Grant Calby read-only context permissions to search and summarize files from your <strong>{genericModalIntegration.name}</strong> workspace.
-            </p>
-
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-3 space-y-2 text-[11px] text-zinc-400">
-              <div className="flex items-center gap-2 text-zinc-200 font-medium">
-                <ShieldCheck className="size-4 text-lime-400 shrink-0" />
-                <span>Privacy & Security Guarantee</span>
-              </div>
-              <p>Your workspace data remains private and is only accessed when you explicitly prompt Calby in chat.</p>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setGenericModalIntegration(null)}
-                className="rounded-full border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white px-4 py-1.5 text-xs font-medium transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSimulatedConnections((prev) => ({ ...prev, [genericModalIntegration.id]: true }));
-                  setGenericModalIntegration(null);
-                }}
-                className="rounded-full bg-lime-400 hover:bg-lime-300 text-black font-bold text-xs px-5 py-1.5 transition-colors"
-              >
-                Authorize & Connect
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* TELEGRAM CONNECTION MODAL */}
       {tgModalOpen && (
