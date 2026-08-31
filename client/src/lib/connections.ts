@@ -43,12 +43,16 @@ export async function connectCalendar(token: string) {
       return;
     }
 
+    const startTime = Date.now();
+    const maxPollTimeMs = 3 * 60 * 1000; // 3 minutes max limit
     const checkTimer = setInterval(async () => {
-      if (popup.closed) {
+      if (popup.closed || Date.now() - startTime > maxPollTimeMs) {
         clearInterval(checkTimer);
-        try {
-          await callbackIntegrationApi(token, "google-calendar");
-        } catch {}
+        if (popup.closed) {
+          try {
+            await callbackIntegrationApi(token, "google-calendar");
+          } catch {}
+        }
       }
     }, 1000);
   }

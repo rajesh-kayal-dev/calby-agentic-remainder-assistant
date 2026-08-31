@@ -298,11 +298,16 @@ export function ConnectorsTab({
           return;
         }
 
+        const startTime = Date.now();
+        const maxPollTimeMs = 3 * 60 * 1000; // 3 minutes max limit
+
         const checkTimer = setInterval(async () => {
-          if (popup.closed) {
+          if (popup.closed || Date.now() - startTime > maxPollTimeMs) {
             clearInterval(checkTimer);
             setConnectingProvider(null);
             setBusy(false);
+
+            if (!popup.closed) return;
 
             let isConnected = false;
             try {

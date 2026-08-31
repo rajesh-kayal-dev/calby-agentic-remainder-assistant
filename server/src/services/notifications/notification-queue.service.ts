@@ -93,6 +93,8 @@ export class InlineNotificationDispatcher implements NotificationQueueDispatcher
 export class BullMQNotificationDispatcher implements NotificationQueueDispatcher {
   private queue: Queue<DeliveryJobPayload> | null = null;
   private worker: Worker<DeliveryJobPayload> | null = null;
+  private reportQueue: Queue<ScheduledReportJobPayload> | null = null;
+  private reportWorker: Worker<ScheduledReportJobPayload> | null = null;
   private redisConnection: any = null;
   private redisUrl: string;
 
@@ -180,8 +182,12 @@ export class BullMQNotificationDispatcher implements NotificationQueueDispatcher
       },
     );
 
-    // 4. Initialize Worker for Scheduled Reports
-    new Worker<ScheduledReportJobPayload>(
+    // 4. Initialize Queue and Worker for Scheduled Reports
+    this.reportQueue = new Queue<ScheduledReportJobPayload>("calby-reports", {
+      connection: this.redisConnection,
+    });
+
+    this.reportWorker = new Worker<ScheduledReportJobPayload>(
       "calby-reports",
       async (job) => {
         const payload = job.data;
@@ -205,15 +211,11 @@ export class BullMQNotificationDispatcher implements NotificationQueueDispatcher
   }
 
   async dispatchScheduledReport(payload: ScheduledReportJobPayload): Promise<void> {
-    if (!this.redisConnection) {
-      throw new Error("Redis is not initialized. Call start() first.");
+    if (!this.reportQueue) {
+      throw new Error("BullMQ report queue is not initialized. Call start() first.");
     }
 
-    const reportQueue = new Queue<ScheduledReportJobPayload>("calby-reports", {
-      connection: this.redisConnection,
-    });
-    
-    await reportQueue.add("run-scheduled-report", payload, {
+    await this.reportQueue.add("run-scheduled-report", payload, {
       jobId: `report-${payload.scheduleId}-${Date.now()}`,
     });
   }
@@ -223,9 +225,17 @@ export class BullMQNotificationDispatcher implements NotificationQueueDispatcher
       await this.worker.close();
       this.worker = null;
     }
+    if (this.reportWorker) {
+      await this.reportWorker.close();
+      this.reportWorker = null;
+    }
     if (this.queue) {
       await this.queue.close();
       this.queue = null;
+    }
+    if (this.reportQueue) {
+      await this.reportQueue.close();
+      this.reportQueue = null;
     }
     if (this.redisConnection) {
       await this.redisConnection.quit();

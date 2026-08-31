@@ -18,6 +18,18 @@ declare global {
   }
 }
 
+interface CachedUser {
+  user: Awaited<ReturnType<typeof ensureUser>>;
+  expiresAt: number;
+}
+
+const USER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+const userCache = new Map<string, CachedUser>();
+
+export function invalidateUserCache(authUserId: string): void {
+  userCache.delete(authUserId);
+}
+
 export async function requireSession(
   req: Request,
   res: Response,
@@ -50,7 +62,17 @@ export async function requireSession(
     }
 
     const email = typeof claims.email === "string" ? claims.email : undefined;
-    const user = await ensureUser({ authUserId, email });
+
+    const now = Date.now();
+    const cached = userCache.get(authUserId);
+    let user;
+
+    if (cached && now < cached.expiresAt) {
+      user = cached.user;
+    } else {
+      user = await ensureUser({ authUserId, email });
+      userCache.set(authUserId, { user, expiresAt: now + USER_CACHE_TTL_MS });
+    }
 
     req.authContext = {
       authUserId,
@@ -65,4 +87,5 @@ export async function requireSession(
     res.status(401).json({ error: "Session expired or invalid", success: false });
   }
 }
+
 

@@ -57,13 +57,52 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     loadNotifications();
   }, [loadNotifications]);
 
-  // Fast periodic polling for real-time notification updates (every 3 seconds)
+  // Smart periodic polling (every 15s) with tab visibility optimization
   useEffect(() => {
     if (!isAuthenticated || !sessionToken) return;
-    const interval = setInterval(() => {
-      loadNotifications();
-    }, 3000);
-    return () => clearInterval(interval);
+
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (!intervalId) {
+        intervalId = setInterval(() => {
+          if (typeof document !== "undefined" && !document.hidden) {
+            loadNotifications();
+          }
+        }, 15000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        loadNotifications();
+        startPolling();
+      }
+    };
+
+    if (typeof document !== "undefined" && !document.hidden) {
+      startPolling();
+    }
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      stopPolling();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [isAuthenticated, sessionToken, loadNotifications]);
 
   const markAsRead = async (id: string) => {

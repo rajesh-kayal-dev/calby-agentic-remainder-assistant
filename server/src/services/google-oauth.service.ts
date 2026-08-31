@@ -67,7 +67,7 @@ export function generateGoogleOAuthState(authUserId: string): string {
 
 export function validateGoogleOAuthState(
   stateToken: string,
-  expectedAuthUserId: string,
+  expectedAuthUserId?: string,
 ): { valid: boolean; authUserId?: string } {
   try {
     const raw = Buffer.from(stateToken, "base64url").toString("utf8");
@@ -75,7 +75,7 @@ export function validateGoogleOAuthState(
     if (parts.length !== 3) return { valid: false };
 
     const [authUserId, timestampStr, hmac] = parts;
-    if (authUserId !== expectedAuthUserId) return { valid: false };
+    if (expectedAuthUserId && authUserId !== expectedAuthUserId) return { valid: false };
 
     const timestamp = parseInt(timestampStr, 10);
     if (isNaN(timestamp)) return { valid: false };
